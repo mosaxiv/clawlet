@@ -1,0 +1,294 @@
+package config
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+type Config struct {
+	Env map[string]string `json:"env"`
+	// Agent configuration (model, iterations, etc.). Kept small on purpose.
+	Agents AgentsConfig `json:"agents"`
+
+	LLM       LLMConfig       `json:"llm"`
+	Tools     ToolsConfig     `json:"tools"`
+	Cron      CronConfig      `json:"cron"`
+	Heartbeat HeartbeatConfig `json:"heartbeat"`
+	Gateway   GatewayConfig   `json:"gateway"`
+	// Channels are optional; enable what you need.
+	Channels ChannelsConfig `json:"channels"`
+}
+
+type LLMConfig struct {
+	APIKey  string            `json:"apiKey"`
+	BaseURL string            `json:"baseURL"`
+	Model   string            `json:"model"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+type AgentsConfig struct {
+	Defaults AgentDefaultsConfig `json:"defaults"`
+}
+
+type AgentDefaultsConfig struct {
+	Model string `json:"model"`
+}
+
+type ToolsConfig struct {
+	RestrictToWorkspace *bool          `json:"restrictToWorkspace"`
+	Exec                ExecToolConfig `json:"exec"`
+	Web                 WebToolsConfig `json:"web"`
+}
+
+func (c ToolsConfig) RestrictToWorkspaceValue() bool {
+	if c.RestrictToWorkspace == nil {
+		return true
+	}
+	return *c.RestrictToWorkspace
+}
+
+type ExecToolConfig struct {
+	TimeoutSec int `json:"timeoutSec"`
+}
+
+type WebToolsConfig struct {
+	BraveAPIKey string `json:"braveApiKey"`
+}
+
+type CronConfig struct {
+	Enabled *bool `json:"enabled"`
+}
+
+func (c CronConfig) EnabledValue() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+type HeartbeatConfig struct {
+	Enabled     *bool `json:"enabled"`
+	IntervalSec int   `json:"intervalSec"`
+}
+
+func (c HeartbeatConfig) EnabledValue() bool {
+	if c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+type GatewayConfig struct {
+	// Listen address for HTTP endpoints needed by channels (e.g. Slack Events API).
+	// Example: "0.0.0.0:18790"
+	Listen string `json:"listen"`
+}
+
+type ChannelsConfig struct {
+	Discord DiscordConfig `json:"discord"`
+	Slack   SlackConfig   `json:"slack"`
+}
+
+type DiscordConfig struct {
+	Enabled    bool     `json:"enabled"`
+	Token      string   `json:"token"`
+	AllowFrom  []string `json:"allowFrom"`
+	GatewayURL string   `json:"gatewayURL,omitempty"`
+	Intents    int      `json:"intents,omitempty"`
+}
+
+// Slack Events API (official).
+// Inbound via Events API endpoint, outbound via Web API (chat.postMessage).
+type SlackConfig struct {
+	Enabled       bool     `json:"enabled"`
+	AllowFrom     []string `json:"allowFrom"`
+	BotToken      string   `json:"botToken"`      // xoxb-...
+	SigningSecret string   `json:"signingSecret"` // used to verify requests
+	EventsPath    string   `json:"eventsPath,omitempty"`
+}
+
+const (
+	DefaultOpenAIBaseURL     = "https://api.openai.com/v1"
+	DefaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
+)
+
+func Default() *Config {
+	restrict := true
+	cronEnabled := true
+	hbEnabled := true
+	return &Config{
+		Env:    map[string]string{},
+		Agents: AgentsConfig{Defaults: AgentDefaultsConfig{Model: "openrouter/openai/gpt-4o-mini"}},
+		LLM: LLMConfig{
+			APIKey:  "",
+			BaseURL: "",
+			Model:   "",
+			Headers: map[string]string{},
+		},
+		Tools: ToolsConfig{
+			RestrictToWorkspace: &restrict,
+			Exec: ExecToolConfig{
+				TimeoutSec: 60,
+			},
+			Web: WebToolsConfig{
+				BraveAPIKey: "",
+			},
+		},
+		Cron: CronConfig{
+			Enabled: &cronEnabled,
+		},
+		Heartbeat: HeartbeatConfig{
+			Enabled:     &hbEnabled,
+			IntervalSec: 30 * 60,
+		},
+		Gateway: GatewayConfig{
+			Listen: "0.0.0.0:18790",
+		},
+		Channels: ChannelsConfig{
+			Discord: DiscordConfig{
+				Enabled:    false,
+				Token:      "",
+				AllowFrom:  nil,
+				GatewayURL: "wss://gateway.discord.gg/?v=10&encoding=json",
+				Intents:    513, // GUILD_MESSAGES (1<<9) + DIRECT_MESSAGES (1<<12)
+			},
+			Slack: SlackConfig{
+				Enabled:       false,
+				AllowFrom:     nil,
+				BotToken:      "",
+				SigningSecret: "",
+				EventsPath:    "/slack/events",
+			},
+		},
+	}
+}
+
+func Load(path string) (*Config, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var cfg Config
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if cfg.LLM.Headers == nil {
+		cfg.LLM.Headers = map[string]string{}
+	}
+	if cfg.Env == nil {
+		cfg.Env = map[string]string{}
+	}
+	if cfg.Tools.Exec.TimeoutSec <= 0 {
+		cfg.Tools.Exec.TimeoutSec = 60
+	}
+	if cfg.Tools.RestrictToWorkspace == nil {
+		v := true
+		cfg.Tools.RestrictToWorkspace = &v
+	}
+	if cfg.Cron.Enabled == nil {
+		v := true
+		cfg.Cron.Enabled = &v
+	}
+	if cfg.Heartbeat.IntervalSec <= 0 {
+		cfg.Heartbeat.IntervalSec = 30 * 60
+	}
+	if cfg.Heartbeat.Enabled == nil {
+		// Default to enabled when missing from config.
+		v := true
+		cfg.Heartbeat.Enabled = &v
+	}
+	if cfg.Gateway.Listen == "" {
+		cfg.Gateway.Listen = "0.0.0.0:18790"
+	}
+	if cfg.Channels.Discord.GatewayURL == "" {
+		cfg.Channels.Discord.GatewayURL = "wss://gateway.discord.gg/?v=10&encoding=json"
+	}
+	if cfg.Channels.Discord.Intents == 0 {
+		cfg.Channels.Discord.Intents = 513
+	}
+	if cfg.Channels.Slack.EventsPath == "" {
+		cfg.Channels.Slack.EventsPath = "/slack/events"
+	}
+
+	// Apply model routing to populate cfg.LLM for runtime use.
+	cfg.ApplyLLMRouting()
+	return &cfg, nil
+}
+
+func Save(path string, cfg *Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	b = append(b, '\n')
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ApplyLLMRouting resolves the effective LLM endpoint and API key from:
+// - agents.defaults.model (preferred) or llm.model
+// - env keys OPENAI_API_KEY / OPENROUTER_API_KEY
+// It mutates cfg.LLM to the effective values used at runtime.
+func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
+	configuredModel = strings.TrimSpace(cfg.Agents.Defaults.Model)
+	if configuredModel == "" {
+		configuredModel = strings.TrimSpace(cfg.LLM.Model)
+	}
+	if configuredModel == "" {
+		configuredModel = "openai/gpt-4o-mini"
+	}
+
+	p, model := parseRoutedModel(configuredModel)
+	if p == "" {
+		// No routing prefix; treat cfg.LLM as already effective.
+		if strings.TrimSpace(cfg.LLM.BaseURL) == "" {
+			cfg.LLM.BaseURL = DefaultOpenAIBaseURL
+		}
+		if strings.TrimSpace(cfg.LLM.Model) == "" {
+			cfg.LLM.Model = configuredModel
+		}
+		return "", configuredModel
+	}
+
+	provider = p
+	cfg.LLM.Model = model
+
+	if strings.TrimSpace(cfg.LLM.BaseURL) == "" {
+		switch provider {
+		case "openai":
+			cfg.LLM.BaseURL = DefaultOpenAIBaseURL
+		case "openrouter":
+			cfg.LLM.BaseURL = DefaultOpenRouterBaseURL
+		}
+	}
+
+	if strings.TrimSpace(cfg.LLM.APIKey) == "" {
+		switch provider {
+		case "openai":
+			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["OPENAI_API_KEY"])
+		case "openrouter":
+			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["OPENROUTER_API_KEY"])
+		}
+	}
+
+	return provider, configuredModel
+}
+
+func parseRoutedModel(s string) (provider string, model string) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "openai/") {
+		return "openai", strings.TrimPrefix(s, "openai/")
+	}
+	if strings.HasPrefix(s, "openrouter/") {
+		return "openrouter", strings.TrimPrefix(s, "openrouter/")
+	}
+	return "", s
+}

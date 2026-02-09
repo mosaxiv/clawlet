@@ -1,0 +1,98 @@
+# Available Tools
+
+This document describes the tools available to {{.AgentName}}.
+
+Note: Tool availability depends on runtime and configuration.
+
+## File Operations
+
+### read_file
+Read the contents of a UTF-8 text file.
+```text
+read_file(path: string) -> string
+```
+
+### write_file
+Write content to a UTF-8 text file (creates parent directories if needed).
+```text
+write_file(path: string, content: string) -> string
+```
+
+### edit_file
+Edit a file by replacing specific text. `old_text` must appear exactly once.
+```text
+edit_file(path: string, old_text: string, new_text: string) -> string
+```
+
+### list_dir
+List directory entries. Returns a JSON array string.
+```text
+list_dir(path: string, recursive?: bool, maxEntries?: int) -> string
+```
+
+## Shell Execution
+
+### exec
+Execute a shell command in the workspace directory.
+```text
+exec(command: string) -> string
+```
+
+Safety notes:
+- Commands have a timeout (default 60s)
+- Dangerous patterns are blocked
+- Output is truncated
+
+## Web Access
+
+### web_search
+Search the web using Brave Search API. Requires `tools.web.braveApiKey` in config.
+```text
+web_search(query: string, count?: int) -> string
+```
+
+### web_fetch
+Fetch a URL and extract readable content. Returns a JSON object string with fields like `status` and `text`.
+```text
+web_fetch(url: string, extractMode?: "markdown"|"text", maxChars?: int) -> string
+```
+
+Notes:
+- HTML extraction is best-effort (not readability)
+
+## Communication
+
+### message
+Send a message to a specific channel/chat_id (used internally).
+```text
+message(content: string, channel: string, chat_id: string) -> string
+```
+
+Do NOT use this tool to reply to the current conversation.
+
+## Background Tasks
+
+### spawn
+Spawn a subagent to handle a task in the background.
+```text
+spawn(task: string, label?: string) -> string
+```
+
+The result will be reported back asynchronously.
+
+## Scheduled Reminders (Cron)
+
+### cron
+Schedule reminders and recurring tasks. Actions: add, list, remove.
+```text
+cron(action: "add"|"list"|"remove", ...) -> string
+```
+
+## Skills
+
+### read_skill
+Read a bundled skill (SKILL.md) by name.
+```text
+read_skill(name: string) -> string
+```
+
