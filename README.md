@@ -1,6 +1,9 @@
-# picoclaw: Lightweight Personal AI Assistant (Single Binary, Simple Setup)
+<div align="center">
+  <img src="picoclaw.png" alt="picoclaw" width="500">
+  <h1>picoclaw: Lightweight Personal AI Assistant <br>Single Binary, Simple Setup</h1>
+</div>
 
-picoclaw is a small, workspace-driven AI agent that combines an LLM with a set of practical tools (files, shell, web, scheduling, background tasks). It can run in CLI mode, or as a long-lived gateway for chat integrations.
+This project is inspired by **OpenClaw** and **nanobot**.
 
 ## Why picoclaw
 
