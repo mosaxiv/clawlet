@@ -9,8 +9,6 @@ This project is inspired by **OpenClaw** and **nanobot**.
 
 📦 **Single binary, small footprint**: Runs as one executable with minimal moving parts.
 
-🗂️ **Workspace-first**: Behavior is shaped by small files like `AGENTS.md`, `HEARTBEAT.md`, and `memory/`.
-
 📖 **Readable**: Straightforward organization so it’s easy to understand, modify, and extend.
 
 ✅ **Easy to adopt**: `onboard` creates a ready-to-edit workspace and config; you can start chatting immediately.
@@ -37,7 +35,7 @@ picoclaw --help
 # Initialize
 picoclaw onboard \
   --openrouter-api-key "sk-or-..." \
-  --model "openrouter/anthropic/claude-sonnet-4-5"
+  --model "openrouter/anthropic/claude-sonnet-4.5"
 
 # Check effective configuration
 picoclaw status
