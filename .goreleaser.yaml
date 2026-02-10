@@ -16,7 +16,10 @@ before:
     - go generate ./...
 
 builds:
-  - env:
+  - id: picoclaw
+    main: ./cmd/picoclaw
+    binary: picoclaw
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
