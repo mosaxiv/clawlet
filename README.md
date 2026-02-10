@@ -142,11 +142,20 @@ Chat app integrations are configured under `channels` (examples below).
 <details>
 <summary><b>Discord</b></summary>
 
-1. Create a bot in Discord Developer Portal and copy the bot token.
-2. Enable required intents (MESSAGE CONTENT INTENT recommended).
-3. Set `channels.discord.allowFrom` to user IDs that are allowed to talk to the agent.
-   - If empty, all users are allowed.
-4. Set `channels.discord.enabled=true` and `channels.discord.token`.
+1. Create the bot and copy the token
+Go to https://discord.com/developers/applications, create an application, then `Bot` → `Add Bot`. Copy the bot token.
+
+2. Invite the bot to your server (OAuth2 URL Generator)
+In `OAuth2` → `URL Generator`, choose `Scopes: bot`. For `Bot Permissions`, the minimal set is `View Channels`, `Send Messages`, `Read Message History`. Open the generated URL and add the bot to your server.
+
+3. Enable Message Content Intent (required for guild message text)
+In the Developer Portal bot settings, enable **MESSAGE CONTENT INTENT**. Without it, the bot won't receive message text in servers.
+
+4. Get your User ID (for allowFrom)
+Enable Developer Mode in Discord settings, then right-click your profile and select `Copy User ID`.
+
+5. Configure picoclaw
+`channels.discord.allowFrom` is the list of user IDs allowed to talk to the agent (empty = allow everyone).
 
 Example config (merge into `~/.picoclaw/config.json`):
 
@@ -156,16 +165,13 @@ Example config (merge into `~/.picoclaw/config.json`):
     "discord": {
       "enabled": true,
       "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["YOUR_USER_ID"],
-      "intents": 37377
+      "allowFrom": ["YOUR_USER_ID"]
     }
   }
 }
 ```
 
-Note: `37377` enables `GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT`.
-
-Then run:
+6. Run
 
 ```bash
 picoclaw gateway
@@ -174,31 +180,31 @@ picoclaw gateway
 </details>
 
 <details>
-<summary><b>Slack (Events API)</b></summary>
+<summary><b>Slack (Socket Mode)</b></summary>
 
-1. Create a Slack App and obtain:
-   - Bot token (`xoxb-...`)
-   - Signing secret
-2. Enable Event Subscriptions and set the Request URL to:
-   - `http(s)://<host>:18790/slack/events` (or your `gateway.listen` + `channels.slack.eventsPath`)
-3. Set `channels.slack.allowFrom` to user IDs that are allowed to talk to the agent.
-   - If empty, all users are allowed.
-4. Set `channels.slack.enabled=true`, and configure `botToken` + `signingSecret`.
+Uses **Socket Mode** (no public URL required). picoclaw currently supports Socket Mode only.
 
-Note: gateway startup fails closed if `signingSecret` is empty.
+1. Create a Slack app
+2. Configure the app:
+   - Socket Mode: ON, generate an App-Level Token (`xapp-...`) with `connections:write`
+   - OAuth scopes (bot): `chat:write`, `reactions:write`, `app_mentions:read`, `im:history`, `channels:history`
+   - Event Subscriptions: subscribe to `message.im`, `message.channels`, `app_mention`
+3. Install the app to your workspace and copy the Bot Token (`xoxb-...`)
+4. Set `channels.slack.enabled=true`, and configure `botToken` + `appToken`.
+   - groupPolicy: "mention" (default — respond only when @mentioned), "open" (respond to all channel messages), or "allowlist" (restrict to specific channels).
+   - DM policy defaults to open. Set "dm": {"enabled": false} to disable DMs.
 
 Example config (merge into `~/.picoclaw/config.json`):
 
 ```json
 {
-  "gateway": { "listen": "0.0.0.0:18790" },
   "channels": {
     "slack": {
       "enabled": true,
-      "allowFrom": ["U012345"],
       "botToken": "xoxb-...",
-      "signingSecret": "YOUR_SIGNING_SECRET",
-      "eventsPath": "/slack/events"
+      "appToken": "xapp-...",
+      "groupPolicy": "mention",
+      "allowFrom": ["U012345"]
     }
   }
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -25,7 +24,6 @@ func cmdGateway() *cli.Command {
 		Name:  "gateway",
 		Usage: "run the long-lived agent gateway (channels + cron + heartbeat)",
 		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "listen", Usage: "HTTP listen address for Slack Events API (default from config.gateway.listen)"},
 			&cli.StringFlag{Name: "workspace", Usage: "workspace directory (default: ~/.picoclaw/workspace or PICOCLAW_WORKSPACE)"},
 			&cli.IntFlag{Name: "max-iters", Value: 20, Usage: "max tool-call iterations"},
 			&cli.BoolFlag{Name: "verbose", Aliases: []string{"v"}, Usage: "verbose"},
@@ -108,8 +106,11 @@ func cmdGateway() *cli.Command {
 			}
 			var sl *slack.Channel
 			if cfg.Channels.Slack.Enabled {
-				if strings.TrimSpace(cfg.Channels.Slack.SigningSecret) == "" {
-					return fmt.Errorf("slack enabled but signingSecret is empty")
+				if strings.TrimSpace(cfg.Channels.Slack.BotToken) == "" {
+					return fmt.Errorf("slack enabled but botToken is empty")
+				}
+				if strings.TrimSpace(cfg.Channels.Slack.AppToken) == "" {
+					return fmt.Errorf("slack enabled but appToken is empty")
 				}
 				sl = slack.New(cfg.Channels.Slack, b)
 				cm.Add(sl)
@@ -117,20 +118,6 @@ func cmdGateway() *cli.Command {
 
 			if err := cm.StartAll(ctx); err != nil {
 				return err
-			}
-
-			if cfg.Channels.Slack.Enabled {
-				addr := cfg.Gateway.Listen
-				if strings.TrimSpace(cmd.String("listen")) != "" {
-					addr = strings.TrimSpace(cmd.String("listen"))
-				}
-				slPath := cfg.Channels.Slack.EventsPath
-				if slPath == "" {
-					slPath = "/slack/events"
-				}
-				go func() {
-					_ = runSlackServer(ctx, addr, slPath, sl)
-				}()
 			}
 
 			go func() { _ = loop.Run(ctx) }()
@@ -147,18 +134,4 @@ func cmdGateway() *cli.Command {
 			return nil
 		},
 	}
-}
-
-func runSlackServer(ctx context.Context, addr, slackPath string, sl *slack.Channel) error {
-	mux := http.NewServeMux()
-	if sl != nil {
-		mux.HandleFunc(slackPath, sl.EventsHandler())
-	}
-
-	srv := &http.Server{Addr: addr, Handler: mux}
-	go func() {
-		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
-	}()
-	return srv.ListenAndServe()
 }

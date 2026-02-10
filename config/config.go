@@ -82,7 +82,7 @@ func (c HeartbeatConfig) EnabledValue() bool {
 }
 
 type GatewayConfig struct {
-	// Listen address for HTTP endpoints needed by channels (e.g. Slack Events API).
+	// Listen address for HTTP endpoints needed by channels (reserved for future use).
 	// Example: "0.0.0.0:18790"
 	Listen string `json:"listen"`
 }
@@ -100,14 +100,22 @@ type DiscordConfig struct {
 	Intents    int      `json:"intents,omitempty"`
 }
 
-// Slack Events API (official).
-// Inbound via Events API endpoint, outbound via Web API (chat.postMessage).
+// Slack (Socket Mode).
+// Inbound via Socket Mode, outbound via Web API (chat.postMessage).
 type SlackConfig struct {
-	Enabled       bool     `json:"enabled"`
-	AllowFrom     []string `json:"allowFrom"`
-	BotToken      string   `json:"botToken"`      // xoxb-...
-	SigningSecret string   `json:"signingSecret"` // used to verify requests
-	EventsPath    string   `json:"eventsPath,omitempty"`
+	Enabled   bool     `json:"enabled"`
+	AllowFrom []string `json:"allowFrom"`
+	BotToken  string   `json:"botToken"` // xoxb-...
+	AppToken  string   `json:"appToken"` // xapp-... (Socket Mode)
+	// GroupPolicy controls whether the bot responds to non-DM messages.
+	// Supported: "mention" (default), "open", "allowlist".
+	GroupPolicy    string         `json:"groupPolicy,omitempty"`
+	GroupAllowFrom []string       `json:"groupAllowFrom,omitempty"` // channel IDs allowed when groupPolicy="allowlist"
+	DM             *SlackDMConfig `json:"dm,omitempty"`
+}
+
+type SlackDMConfig struct {
+	Enabled bool `json:"enabled"`
 }
 
 const (
@@ -153,14 +161,16 @@ func Default() *Config {
 				Token:      "",
 				AllowFrom:  nil,
 				GatewayURL: "wss://gateway.discord.gg/?v=10&encoding=json",
-				Intents:    513, // GUILD_MESSAGES (1<<9) + DIRECT_MESSAGES (1<<12)
+				Intents:    37377, // GUILDS (1<<0) + GUILD_MESSAGES (1<<9) + DIRECT_MESSAGES (1<<12) + MESSAGE_CONTENT (1<<15)
 			},
 			Slack: SlackConfig{
-				Enabled:       false,
-				AllowFrom:     nil,
-				BotToken:      "",
-				SigningSecret: "",
-				EventsPath:    "/slack/events",
+				Enabled:        false,
+				AllowFrom:      nil,
+				BotToken:       "",
+				AppToken:       "",
+				GroupPolicy:    "mention",
+				GroupAllowFrom: nil,
+				DM:             &SlackDMConfig{Enabled: true},
 			},
 		},
 	}
@@ -207,10 +217,14 @@ func Load(path string) (*Config, error) {
 		cfg.Channels.Discord.GatewayURL = "wss://gateway.discord.gg/?v=10&encoding=json"
 	}
 	if cfg.Channels.Discord.Intents == 0 {
-		cfg.Channels.Discord.Intents = 513
+		cfg.Channels.Discord.Intents = 37377
 	}
-	if cfg.Channels.Slack.EventsPath == "" {
-		cfg.Channels.Slack.EventsPath = "/slack/events"
+	if strings.TrimSpace(cfg.Channels.Slack.GroupPolicy) == "" {
+		cfg.Channels.Slack.GroupPolicy = "mention"
+	}
+	// Default DM policy is open (enabled).
+	if cfg.Channels.Slack.DM == nil {
+		cfg.Channels.Slack.DM = &SlackDMConfig{Enabled: true}
 	}
 
 	// Apply model routing to populate cfg.LLM for runtime use.
