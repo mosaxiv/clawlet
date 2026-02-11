@@ -68,10 +68,13 @@ func New(opts Options) (*Agent, error) {
 	}
 
 	c := &llm.Client{
-		BaseURL: opts.Config.LLM.BaseURL,
-		APIKey:  opts.Config.LLM.APIKey,
-		Model:   opts.Config.LLM.Model,
-		Headers: opts.Config.LLM.Headers,
+		Provider:    opts.Config.LLM.Provider,
+		BaseURL:     opts.Config.LLM.BaseURL,
+		APIKey:      opts.Config.LLM.APIKey,
+		Model:       opts.Config.LLM.Model,
+		MaxTokens:   opts.Config.Agents.Defaults.MaxTokensValue(),
+		Temperature: opts.Config.Agents.Defaults.Temperature,
+		Headers:     opts.Config.LLM.Headers,
 	}
 
 	treg := &tools.Registry{

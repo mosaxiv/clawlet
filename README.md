@@ -117,6 +117,9 @@ picoclaw currently supports these LLM providers:
 
 - **OpenAI** (`openai/<model>`, API key: `env.OPENAI_API_KEY`)
 - **OpenRouter** (`openrouter/<provider>/<model>`, API key: `env.OPENROUTER_API_KEY`)
+- **Anthropic** (`anthropic/<model>`, API key: `env.ANTHROPIC_API_KEY`)
+- **Gemini** (`gemini/<model>`, API key: `env.GEMINI_API_KEY` or `env.GOOGLE_API_KEY`)
+- **Local (Ollama / vLLM / OpenAI-compatible local endpoint)** (`ollama/<model>` or `local/<model>`, default base URL: `http://localhost:11434/v1`, API key optional)
 
 Minimal config (OpenRouter):
 
@@ -124,6 +127,37 @@ Minimal config (OpenRouter):
 {
   "env": { "OPENROUTER_API_KEY": "sk-or-..." },
   "agents": { "defaults": { "model": "openrouter/anthropic/claude-sonnet-4-5" } }
+}
+```
+
+Agent generation defaults are configurable (aligned with nanobot defaults):
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": "openrouter/anthropic/claude-sonnet-4-5",
+      "maxTokens": 8192,
+      "temperature": 0.7
+    }
+  }
+}
+```
+
+Minimal config (Local via Ollama):
+
+```json
+{
+  "agents": { "defaults": { "model": "ollama/qwen2.5:14b" } }
+}
+```
+
+Minimal config (Local via vLLM using the same `ollama/` route):
+
+```json
+{
+  "agents": { "defaults": { "model": "ollama/meta-llama/Llama-3.1-8B-Instruct" } },
+  "llm": { "baseURL": "http://localhost:8000/v1" }
 }
 ```
 

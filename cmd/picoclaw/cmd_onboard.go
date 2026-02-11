@@ -28,6 +28,8 @@ func cmdOnboard() *cli.Command {
 			&cli.StringFlag{Name: "model", Usage: "set agents.defaults.model (e.g. openrouter/anthropic/claude-sonnet-4-5)"},
 			&cli.StringFlag{Name: "openrouter-api-key", Usage: "write env.OPENROUTER_API_KEY into config.json"},
 			&cli.StringFlag{Name: "openai-api-key", Usage: "write env.OPENAI_API_KEY into config.json"},
+			&cli.StringFlag{Name: "anthropic-api-key", Usage: "write env.ANTHROPIC_API_KEY into config.json"},
+			&cli.StringFlag{Name: "gemini-api-key", Usage: "write env.GEMINI_API_KEY into config.json"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			cfgPath, err := paths.ConfigPath()
@@ -43,7 +45,9 @@ func cmdOnboard() *cli.Command {
 			model := cmd.String("model")
 			orKey := cmd.String("openrouter-api-key")
 			oaKey := cmd.String("openai-api-key")
-			if err := saveMinimalConfig(cfgPath, model, orKey, oaKey); err != nil {
+			anthropicKey := cmd.String("anthropic-api-key")
+			geminiKey := cmd.String("gemini-api-key")
+			if err := saveMinimalConfig(cfgPath, model, orKey, oaKey, anthropicKey, geminiKey); err != nil {
 				return err
 			}
 
@@ -65,7 +69,7 @@ func cmdOnboard() *cli.Command {
 	}
 }
 
-func saveMinimalConfig(path string, model string, openrouterKey string, openaiKey string) error {
+func saveMinimalConfig(path string, model string, openrouterKey string, openaiKey string, anthropicKey string, geminiKey string) error {
 	root := map[string]any{}
 
 	env := map[string]string{}
@@ -74,6 +78,12 @@ func saveMinimalConfig(path string, model string, openrouterKey string, openaiKe
 	}
 	if openaiKey != "" {
 		env["OPENAI_API_KEY"] = openaiKey
+	}
+	if anthropicKey != "" {
+		env["ANTHROPIC_API_KEY"] = anthropicKey
+	}
+	if geminiKey != "" {
+		env["GEMINI_API_KEY"] = geminiKey
 	}
 	if len(env) > 0 {
 		root["env"] = env

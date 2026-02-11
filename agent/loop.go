@@ -82,10 +82,13 @@ func NewLoop(opts LoopOptions) (*Loop, error) {
 	}
 
 	client := &llm.Client{
-		BaseURL: opts.Config.LLM.BaseURL,
-		APIKey:  opts.Config.LLM.APIKey,
-		Model:   model,
-		Headers: opts.Config.LLM.Headers,
+		Provider:    opts.Config.LLM.Provider,
+		BaseURL:     opts.Config.LLM.BaseURL,
+		APIKey:      opts.Config.LLM.APIKey,
+		Model:       model,
+		MaxTokens:   opts.Config.Agents.Defaults.MaxTokensValue(),
+		Temperature: opts.Config.Agents.Defaults.Temperature,
+		Headers:     opts.Config.LLM.Headers,
 	}
 
 	treg := &tools.Registry{

@@ -11,41 +11,22 @@ import (
 	"time"
 )
 
-type Client struct {
-	BaseURL string
-	APIKey  string
-	Model   string
-	Headers map[string]string
-	HTTP    *http.Client
-}
-
-type ToolCall struct {
-	ID        string
-	Name      string
-	Arguments json.RawMessage
-}
-
-type ChatResult struct {
-	Content   string
-	ToolCalls []ToolCall
-}
-
-func (r ChatResult) HasToolCalls() bool { return len(r.ToolCalls) > 0 }
-
-func (c *Client) Chat(ctx context.Context, messages []Message, tools []ToolDefinition) (*ChatResult, error) {
+func (c *Client) chatOpenAICompatible(ctx context.Context, messages []Message, tools []ToolDefinition) (*ChatResult, error) {
 	endpoint := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
 
 	type chatRequest struct {
 		Model       string           `json:"model"`
 		Messages    []Message        `json:"messages"`
-		Temperature float64          `json:"temperature,omitempty"`
+		MaxTokens   int              `json:"max_tokens,omitempty"`
+		Temperature *float64         `json:"temperature,omitempty"`
 		Tools       []ToolDefinition `json:"tools,omitempty"`
 		ToolChoice  string           `json:"tool_choice,omitempty"`
 	}
 	reqBody := chatRequest{
 		Model:       c.Model,
 		Messages:    messages,
-		Temperature: 0.2,
+		MaxTokens:   c.maxTokensValue(),
+		Temperature: c.temperatureValue(),
 	}
 	if len(tools) > 0 {
 		reqBody.Tools = tools

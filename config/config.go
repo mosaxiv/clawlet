@@ -23,10 +23,11 @@ type Config struct {
 }
 
 type LLMConfig struct {
-	APIKey  string            `json:"apiKey"`
-	BaseURL string            `json:"baseURL"`
-	Model   string            `json:"model"`
-	Headers map[string]string `json:"headers,omitempty"`
+	Provider string            `json:"provider,omitempty"`
+	APIKey   string            `json:"apiKey"`
+	BaseURL  string            `json:"baseURL"`
+	Model    string            `json:"model"`
+	Headers  map[string]string `json:"headers,omitempty"`
 }
 
 type AgentsConfig struct {
@@ -34,7 +35,23 @@ type AgentsConfig struct {
 }
 
 type AgentDefaultsConfig struct {
-	Model string `json:"model"`
+	Model       string   `json:"model"`
+	MaxTokens   int      `json:"maxTokens,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+}
+
+func (c AgentDefaultsConfig) MaxTokensValue() int {
+	if c.MaxTokens <= 0 {
+		return DefaultAgentMaxTokens
+	}
+	return c.MaxTokens
+}
+
+func (c AgentDefaultsConfig) TemperatureValue() float64 {
+	if c.Temperature == nil {
+		return DefaultAgentTemperature
+	}
+	return *c.Temperature
 }
 
 type ToolsConfig struct {
@@ -119,8 +136,13 @@ type SlackDMConfig struct {
 }
 
 const (
+	DefaultAgentMaxTokens    = 8192
+	DefaultAgentTemperature  = 0.7
 	DefaultOpenAIBaseURL     = "https://api.openai.com/v1"
 	DefaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
+	DefaultAnthropicBaseURL  = "https://api.anthropic.com"
+	DefaultGeminiBaseURL     = "https://generativelanguage.googleapis.com/v1beta"
+	DefaultOllamaBaseURL     = "http://localhost:11434/v1"
 )
 
 func Default() *Config {
@@ -131,10 +153,11 @@ func Default() *Config {
 		Env:    map[string]string{},
 		Agents: AgentsConfig{Defaults: AgentDefaultsConfig{Model: "openrouter/openai/gpt-4o-mini"}},
 		LLM: LLMConfig{
-			APIKey:  "",
-			BaseURL: "",
-			Model:   "",
-			Headers: map[string]string{},
+			Provider: "",
+			APIKey:   "",
+			BaseURL:  "",
+			Model:    "",
+			Headers:  map[string]string{},
 		},
 		Tools: ToolsConfig{
 			RestrictToWorkspace: &restrict,
@@ -249,9 +272,12 @@ func Save(path string, cfg *Config) error {
 
 // ApplyLLMRouting resolves the effective LLM endpoint and API key from:
 // - agents.defaults.model (preferred) or llm.model
-// - env keys OPENAI_API_KEY / OPENROUTER_API_KEY
+// - env keys OPENAI_API_KEY / OPENROUTER_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY / GOOGLE_API_KEY
 // It mutates cfg.LLM to the effective values used at runtime.
 func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
+	providerHint := canonicalProvider(cfg.LLM.Provider)
+	cfg.LLM.Provider = ""
+
 	configuredModel = strings.TrimSpace(cfg.Agents.Defaults.Model)
 	if configuredModel == "" {
 		configuredModel = strings.TrimSpace(cfg.LLM.Model)
@@ -262,17 +288,41 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 
 	p, model := parseRoutedModel(configuredModel)
 	if p == "" {
+		provider = providerHint
+		cfg.LLM.Provider = provider
+
 		// No routing prefix; treat cfg.LLM as already effective.
 		if strings.TrimSpace(cfg.LLM.BaseURL) == "" {
-			cfg.LLM.BaseURL = DefaultOpenAIBaseURL
+			switch provider {
+			case "anthropic":
+				cfg.LLM.BaseURL = DefaultAnthropicBaseURL
+			case "gemini":
+				cfg.LLM.BaseURL = DefaultGeminiBaseURL
+			case "ollama":
+				cfg.LLM.BaseURL = DefaultOllamaBaseURL
+			default:
+				cfg.LLM.BaseURL = DefaultOpenAIBaseURL
+			}
 		}
 		if strings.TrimSpace(cfg.LLM.Model) == "" {
 			cfg.LLM.Model = configuredModel
 		}
-		return "", configuredModel
+		if strings.TrimSpace(cfg.LLM.APIKey) == "" {
+			switch provider {
+			case "anthropic":
+				cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["ANTHROPIC_API_KEY"])
+			case "gemini":
+				cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["GEMINI_API_KEY"])
+				if cfg.LLM.APIKey == "" {
+					cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["GOOGLE_API_KEY"])
+				}
+			}
+		}
+		return provider, configuredModel
 	}
 
 	provider = p
+	cfg.LLM.Provider = provider
 	cfg.LLM.Model = model
 
 	if strings.TrimSpace(cfg.LLM.BaseURL) == "" {
@@ -281,6 +331,12 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 			cfg.LLM.BaseURL = DefaultOpenAIBaseURL
 		case "openrouter":
 			cfg.LLM.BaseURL = DefaultOpenRouterBaseURL
+		case "anthropic":
+			cfg.LLM.BaseURL = DefaultAnthropicBaseURL
+		case "gemini":
+			cfg.LLM.BaseURL = DefaultGeminiBaseURL
+		case "ollama":
+			cfg.LLM.BaseURL = DefaultOllamaBaseURL
 		}
 	}
 
@@ -290,6 +346,13 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["OPENAI_API_KEY"])
 		case "openrouter":
 			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["OPENROUTER_API_KEY"])
+		case "anthropic":
+			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["ANTHROPIC_API_KEY"])
+		case "gemini":
+			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["GEMINI_API_KEY"])
+			if cfg.LLM.APIKey == "" {
+				cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["GOOGLE_API_KEY"])
+			}
 		}
 	}
 
@@ -304,5 +367,26 @@ func parseRoutedModel(s string) (provider string, model string) {
 	if after, ok := strings.CutPrefix(s, "openrouter/"); ok {
 		return "openrouter", after
 	}
+	if after, ok := strings.CutPrefix(s, "anthropic/"); ok {
+		return "anthropic", after
+	}
+	if after, ok := strings.CutPrefix(s, "gemini/"); ok {
+		return "gemini", after
+	}
+	if after, ok := strings.CutPrefix(s, "ollama/"); ok {
+		return "ollama", after
+	}
+	if after, ok := strings.CutPrefix(s, "local/"); ok {
+		return "ollama", after
+	}
 	return "", s
+}
+
+func canonicalProvider(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "local":
+		return "ollama"
+	default:
+		return strings.ToLower(strings.TrimSpace(s))
+	}
 }

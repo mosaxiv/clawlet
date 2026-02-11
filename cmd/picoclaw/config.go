@@ -23,7 +23,7 @@ func loadConfig() (*config.Config, string, error) {
 	applyEnvOverrides(cfg)
 	cfg.ApplyLLMRouting()
 
-	if strings.TrimSpace(cfg.LLM.APIKey) == "" {
+	if strings.TrimSpace(cfg.LLM.APIKey) == "" && providerNeedsAPIKey(cfg.LLM.Provider) {
 		fmt.Fprintln(os.Stderr, "warning: llm.apiKey is empty (set in config.env or env vars)")
 	}
 
@@ -52,6 +52,24 @@ func applyEnvOverrides(cfg *config.Config) {
 		}
 		cfg.Env["OPENROUTER_API_KEY"] = v
 	}
+	if v := os.Getenv("PICOCLAW_ANTHROPIC_API_KEY"); v != "" {
+		if cfg.Env == nil {
+			cfg.Env = map[string]string{}
+		}
+		cfg.Env["ANTHROPIC_API_KEY"] = v
+	}
+	if v := os.Getenv("PICOCLAW_GEMINI_API_KEY"); v != "" {
+		if cfg.Env == nil {
+			cfg.Env = map[string]string{}
+		}
+		cfg.Env["GEMINI_API_KEY"] = v
+	}
+	if v := os.Getenv("PICOCLAW_GOOGLE_API_KEY"); v != "" {
+		if cfg.Env == nil {
+			cfg.Env = map[string]string{}
+		}
+		cfg.Env["GOOGLE_API_KEY"] = v
+	}
 	if v := os.Getenv("OPENAI_API_KEY"); v != "" {
 		if cfg.Env == nil {
 			cfg.Env = map[string]string{}
@@ -63,6 +81,24 @@ func applyEnvOverrides(cfg *config.Config) {
 			cfg.Env = map[string]string{}
 		}
 		cfg.Env["OPENROUTER_API_KEY"] = v
+	}
+	if v := os.Getenv("ANTHROPIC_API_KEY"); v != "" {
+		if cfg.Env == nil {
+			cfg.Env = map[string]string{}
+		}
+		cfg.Env["ANTHROPIC_API_KEY"] = v
+	}
+	if v := os.Getenv("GEMINI_API_KEY"); v != "" {
+		if cfg.Env == nil {
+			cfg.Env = map[string]string{}
+		}
+		cfg.Env["GEMINI_API_KEY"] = v
+	}
+	if v := os.Getenv("GOOGLE_API_KEY"); v != "" {
+		if cfg.Env == nil {
+			cfg.Env = map[string]string{}
+		}
+		cfg.Env["GOOGLE_API_KEY"] = v
 	}
 
 	if cfg.LLM.Headers == nil {
@@ -80,4 +116,13 @@ func resolveWorkspace(flagValue string) (string, error) {
 		}
 	}
 	return filepath.Abs(ws)
+}
+
+func providerNeedsAPIKey(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "ollama":
+		return false
+	default:
+		return true
+	}
 }
