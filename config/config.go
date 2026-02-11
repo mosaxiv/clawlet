@@ -298,11 +298,11 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 
 func parseRoutedModel(s string) (provider string, model string) {
 	s = strings.TrimSpace(s)
-	if strings.HasPrefix(s, "openai/") {
-		return "openai", strings.TrimPrefix(s, "openai/")
+	if after, ok := strings.CutPrefix(s, "openai/"); ok {
+		return "openai", after
 	}
-	if strings.HasPrefix(s, "openrouter/") {
-		return "openrouter", strings.TrimPrefix(s, "openrouter/")
+	if after, ok := strings.CutPrefix(s, "openrouter/"); ok {
+		return "openrouter", after
 	}
 	return "", s
 }

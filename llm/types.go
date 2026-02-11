@@ -51,7 +51,7 @@ func (s JSONSchema) MarshalJSON() ([]byte, error) {
 type FunctionDefinition struct {
 	Name        string     `json:"name"`
 	Description string     `json:"description,omitempty"`
-	Parameters  JSONSchema `json:"parameters,omitempty"`
+	Parameters  JSONSchema `json:"parameters"`
 }
 
 type ToolDefinition struct {

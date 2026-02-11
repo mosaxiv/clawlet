@@ -283,8 +283,8 @@ func (c *Channel) stripBotMention(text string) string {
 	}
 	text = strings.TrimSpace(text)
 	pfx := "<@" + botID + ">"
-	if strings.HasPrefix(text, pfx) {
-		text = strings.TrimSpace(strings.TrimPrefix(text, pfx))
+	if after, ok := strings.CutPrefix(text, pfx); ok {
+		text = strings.TrimSpace(after)
 		// Common forms: "<@U..>: hi" or "<@U..>, hi"
 		text = strings.TrimSpace(strings.TrimPrefix(text, ":"))
 		text = strings.TrimSpace(strings.TrimPrefix(text, ","))

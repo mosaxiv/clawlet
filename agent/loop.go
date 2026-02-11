@@ -292,8 +292,8 @@ func (l *Loop) buildSystemPrompt(channel, chatID string) string {
 }
 
 func parseOrigin(chatID string) (string, string) {
-	if i := strings.Index(chatID, ":"); i >= 0 {
-		return chatID[:i], chatID[i+1:]
+	if before, after, ok := strings.Cut(chatID, ":"); ok {
+		return before, after
 	}
 	return "", ""
 }

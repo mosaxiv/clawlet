@@ -172,7 +172,7 @@ func readFrontmatter(content string) map[string]string {
 		return nil
 	}
 	meta := map[string]string{}
-	for _, line := range strings.Split(m[1], "\n") {
+	for line := range strings.SplitSeq(m[1], "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

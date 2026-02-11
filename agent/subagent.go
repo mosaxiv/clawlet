@@ -92,7 +92,7 @@ func (m *SubagentManager) runSubagent(ctx context.Context, task string) (string,
 
 	const maxIters = 15
 	var final string
-	for iter := 0; iter < maxIters; iter++ {
+	for range maxIters {
 		res, err := l.llm.Chat(ctx, messages, toolsDefs)
 		if err != nil {
 			return "", err

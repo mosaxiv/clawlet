@@ -52,7 +52,6 @@ func (m *Manager) StartAll(ctx context.Context) error {
 
 	// Start channels
 	for _, ch := range chs {
-		ch := ch
 		go func() {
 			_ = ch.Start(ctx)
 		}()

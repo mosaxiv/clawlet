@@ -2,6 +2,7 @@ package channels
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/mosaxiv/picoclaw/bus"
@@ -27,23 +28,19 @@ func (a AllowList) Allowed(senderID string) bool {
 	if senderID == "" {
 		return false
 	}
-	for _, v := range a.AllowFrom {
-		if senderID == v {
-			return true
-		}
+	if slices.Contains(a.AllowFrom, senderID) {
+		return true
 	}
 	// Accept compound IDs (e.g. "a|b")
 	if strings.Contains(senderID, "|") {
-		parts := strings.Split(senderID, "|")
-		for _, p := range parts {
+		parts := strings.SplitSeq(senderID, "|")
+		for p := range parts {
 			p = strings.TrimSpace(p)
 			if p == "" {
 				continue
 			}
-			for _, v := range a.AllowFrom {
-				if p == v {
-					return true
-				}
+			if slices.Contains(a.AllowFrom, p) {
+				return true
 			}
 		}
 	}

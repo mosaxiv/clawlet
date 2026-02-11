@@ -138,7 +138,7 @@ func isEmpty(content string) bool {
 		"- [x]": true,
 		"* [x]": true,
 	}
-	for _, line := range strings.Split(content, "\n") {
+	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
