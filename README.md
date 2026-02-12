@@ -13,18 +13,12 @@ This project is inspired by **OpenClaw** and **nanobot**.
 
 ## Install
 
-Prebuilt binaries are published on GitHub Releases (via GoReleaser).
+Download from [GitHub Releases](https://github.com/mosaxiv/clawlet/releases/latest).
 
-macOS example (Apple Silicon):
-
+macOS (Apple Silicon):
 ```bash
-curl -L -o clawlet.tar.gz \
-  https://github.com/mosaxiv/clawlet/releases/latest/download/clawlet_Darwin_arm64.tar.gz
-tar -xzf clawlet.tar.gz
-chmod +x clawlet
-mkdir -p ~/.local/bin
+curl -L https://github.com/mosaxiv/clawlet/releases/latest/download/clawlet_Darwin_arm64.tar.gz | tar xz
 mv clawlet ~/.local/bin/
-clawlet --help
 ```
 
 ## Quick Start
