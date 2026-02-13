@@ -1,11 +1,10 @@
 package telegram
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,36 +12,35 @@ import (
 	"sync/atomic"
 	"time"
 
+	tgbot "github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 	"github.com/mosaxiv/clawlet/bus"
 	"github.com/mosaxiv/clawlet/channels"
 	"github.com/mosaxiv/clawlet/config"
 )
 
 type Channel struct {
-	cfg         config.TelegramConfig
-	bus         *bus.Bus
-	allow       channels.AllowList
-	pollTimeout int
+	cfg   config.TelegramConfig
+	bus   *bus.Bus
+	allow channels.AllowList
+
+	pollTimeoutSec int
+	workers        int
 
 	running atomic.Bool
 
 	mu     sync.Mutex
+	bot    *tgbot.Bot
 	cancel context.CancelFunc
-	hc     *http.Client
-
-	lastUpdateID int64
 }
 
 func New(cfg config.TelegramConfig, b *bus.Bus) *Channel {
-	pollTimeout := clampTelegramPollTimeout(cfg.PollTimeoutSec)
 	return &Channel{
-		cfg:         cfg,
-		bus:         b,
-		allow:       channels.AllowList{AllowFrom: cfg.AllowFrom},
-		pollTimeout: pollTimeout,
-		hc: &http.Client{
-			Timeout: time.Duration(pollTimeout+15) * time.Second,
-		},
+		cfg:            cfg,
+		bus:            b,
+		allow:          channels.AllowList{AllowFrom: cfg.AllowFrom},
+		pollTimeoutSec: clampTelegramPollTimeout(cfg.PollTimeoutSec),
+		workers:        clampTelegramWorkers(cfg.Workers),
 	}
 }
 
@@ -50,17 +48,42 @@ func (c *Channel) Name() string    { return "telegram" }
 func (c *Channel) IsRunning() bool { return c.running.Load() }
 
 func (c *Channel) Start(ctx context.Context) error {
-	if strings.TrimSpace(c.cfg.Token) == "" {
+	token := strings.TrimSpace(c.cfg.Token)
+	if token == "" {
 		return fmt.Errorf("telegram token is empty")
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	hc := &http.Client{Timeout: time.Duration(c.pollTimeoutSec+15) * time.Second}
+	opts := []tgbot.Option{
+		tgbot.WithHTTPClient(time.Duration(c.pollTimeoutSec)*time.Second, hc),
+		tgbot.WithWorkers(c.workers),
+		tgbot.WithAllowedUpdates(tgbot.AllowedUpdates{
+			models.AllowedUpdateMessage,
+			models.AllowedUpdateEditedMessage,
+		}),
+		tgbot.WithDefaultHandler(c.onUpdate),
+	}
+	if baseURL := strings.TrimSpace(c.cfg.BaseURL); baseURL != "" {
+		opts = append(opts, tgbot.WithServerURL(baseURL))
+	}
+
+	b, err := tgbot.New(token, opts...)
+	if err != nil {
+		return err
+	}
+
 	c.mu.Lock()
+	c.bot = b
 	c.cancel = cancel
 	c.mu.Unlock()
 	defer func() {
-		cancel()
 		c.mu.Lock()
+		if c.bot == b {
+			c.bot = nil
+		}
 		c.cancel = nil
 		c.mu.Unlock()
 	}()
@@ -68,42 +91,15 @@ func (c *Channel) Start(ctx context.Context) error {
 	c.running.Store(true)
 	defer c.running.Store(false)
 
-	attempt := 1
-	for {
-		updates, err := c.getUpdates(runCtx, c.lastUpdateID+1)
-		if err != nil {
-			select {
-			case <-runCtx.Done():
-				return runCtx.Err()
-			default:
-			}
-
-			wait := telegramPollBackoff(attempt)
-			attempt++
-			t := time.NewTimer(wait)
-			select {
-			case <-runCtx.Done():
-				t.Stop()
-				return runCtx.Err()
-			case <-t.C:
-				continue
-			}
-		}
-		attempt = 1
-
-		for _, up := range updates {
-			if up.UpdateID > c.lastUpdateID {
-				c.lastUpdateID = up.UpdateID
-			}
-			c.handleUpdate(runCtx, up)
-		}
-	}
+	b.Start(runCtx)
+	return runCtx.Err()
 }
 
 func (c *Channel) Stop() error {
 	c.mu.Lock()
 	cancel := c.cancel
 	c.cancel = nil
+	c.bot = nil
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -112,51 +108,64 @@ func (c *Channel) Stop() error {
 }
 
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
-	chatID := strings.TrimSpace(msg.ChatID)
-	if chatID == "" {
-		return fmt.Errorf("chat_id is empty")
-	}
-	content := strings.TrimSpace(msg.Content)
-	if content == "" {
+	text := strings.TrimSpace(msg.Content)
+	if text == "" {
 		return nil
 	}
 
-	req := telegramSendMessageRequest{
-		ChatID: chatID,
-		Text:   content,
+	chatIDAny, err := parseTelegramChatID(msg.ChatID)
+	if err != nil {
+		return err
+	}
+
+	c.mu.Lock()
+	b := c.bot
+	c.mu.Unlock()
+	if b == nil {
+		return fmt.Errorf("telegram not connected")
+	}
+
+	params := &tgbot.SendMessageParams{
+		ChatID: chatIDAny,
+		Text:   text,
 	}
 	if replyTo := resolveTelegramReplyTarget(msg); replyTo > 0 {
-		req.ReplyParameters = &telegramReplyParameters{
-			MessageID:                replyTo,
+		params.ReplyParameters = &models.ReplyParameters{
+			MessageID:                int(replyTo),
 			AllowSendingWithoutReply: true,
 		}
 	}
 
-	return c.callAPI(ctx, "sendMessage", req, nil)
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		_, err = b.SendMessage(ctx, params)
+		if err == nil {
+			return nil
+		}
+		retry, wait := shouldRetryTelegramSend(err, attempt)
+		if !retry || attempt == maxAttempts {
+			return err
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
+	}
+	return nil
 }
 
-func (c *Channel) getUpdates(ctx context.Context, offset int64) ([]telegramUpdate, error) {
-	req := telegramGetUpdatesRequest{
-		Offset:         offset,
-		Timeout:        c.pollTimeout,
-		AllowedUpdates: []string{"message", "edited_message"},
+func (c *Channel) onUpdate(ctx context.Context, _ *tgbot.Bot, up *models.Update) {
+	if up == nil {
+		return
 	}
-	var updates []telegramUpdate
-	if err := c.callAPI(ctx, "getUpdates", req, &updates); err != nil {
-		return nil, err
-	}
-	return updates, nil
-}
-
-func (c *Channel) handleUpdate(ctx context.Context, up telegramUpdate) {
 	msg := up.Message
 	if msg == nil {
 		msg = up.EditedMessage
 	}
-	if msg == nil || msg.From == nil {
-		return
-	}
-	if msg.From.IsBot {
+	if msg == nil || msg.From == nil || msg.From.IsBot {
 		return
 	}
 
@@ -169,8 +178,8 @@ func (c *Channel) handleUpdate(ctx context.Context, up telegramUpdate) {
 	if content == "" {
 		return
 	}
-	chatID := strconv.FormatInt(msg.Chat.ID, 10)
 
+	chatID := strconv.FormatInt(msg.Chat.ID, 10)
 	_ = c.bus.PublishInbound(ctx, bus.InboundMessage{
 		Channel:    "telegram",
 		SenderID:   senderID,
@@ -181,68 +190,73 @@ func (c *Channel) handleUpdate(ctx context.Context, up telegramUpdate) {
 	})
 }
 
-func (c *Channel) callAPI(ctx context.Context, method string, reqBody any, out any) error {
-	baseURL := strings.TrimSpace(c.cfg.BaseURL)
-	if baseURL == "" {
-		baseURL = "https://api.telegram.org"
+func parseTelegramChatID(v string) (any, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil, fmt.Errorf("chat_id is empty")
 	}
-	token := strings.TrimSpace(c.cfg.Token)
-	if token == "" {
-		return fmt.Errorf("telegram token is empty")
+	if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+		return n, nil
 	}
-	url := strings.TrimRight(baseURL, "/") + "/bot" + token + "/" + method
-
-	var body io.Reader = http.NoBody
-	if reqBody != nil {
-		b, err := json.Marshal(reqBody)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(b)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, body)
-	if err != nil {
-		return err
-	}
-	if reqBody != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("telegram %s status %d: %s", method, resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-
-	var envelope telegramAPIEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("telegram %s decode response: %w", method, err)
-	}
-	if !envelope.OK {
-		desc := strings.TrimSpace(envelope.Description)
-		if desc == "" {
-			desc = "unknown api error"
-		}
-		return fmt.Errorf("telegram %s api error: %s", method, desc)
-	}
-	if out != nil && len(envelope.Result) > 0 {
-		if err := json.Unmarshal(envelope.Result, out); err != nil {
-			return fmt.Errorf("telegram %s decode result: %w", method, err)
-		}
-	}
-	return nil
+	return v, nil
 }
 
-func telegramSenderID(from *telegramUser) string {
+func shouldRetryTelegramSend(err error, attempt int) (bool, time.Duration) {
+	if err == nil {
+		return false, 0
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false, 0
+	}
+
+	var tooMany *tgbot.TooManyRequestsError
+	if errors.As(err, &tooMany) {
+		if tooMany.RetryAfter > 0 {
+			return true, time.Duration(tooMany.RetryAfter) * time.Second
+		}
+		return true, telegramSendBackoff(attempt)
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+		return true, telegramSendBackoff(attempt)
+	}
+
+	if isTelegram5xxError(err) {
+		return true, telegramSendBackoff(attempt)
+	}
+	return false, 0
+}
+
+func isTelegram5xxError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	idx := strings.Index(msg, "sendMessage, ")
+	if idx < 0 {
+		return false
+	}
+	rest := msg[idx+len("sendMessage, "):]
+	if len(rest) < 3 {
+		return false
+	}
+	code, convErr := strconv.Atoi(rest[:3])
+	if convErr != nil {
+		return false
+	}
+	return code >= 500 && code <= 599
+}
+
+func telegramSendBackoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	shift := min(attempt-1, 4)
+	return 300 * time.Millisecond * time.Duration(1<<shift)
+}
+
+func telegramSenderID(from *models.User) string {
 	if from == nil {
 		return ""
 	}
@@ -254,7 +268,7 @@ func telegramSenderID(from *telegramUser) string {
 	return id + "|" + username
 }
 
-func telegramMessageContent(msg *telegramMessage) string {
+func telegramMessageContent(msg *models.Message) string {
 	if msg == nil {
 		return ""
 	}
@@ -264,19 +278,19 @@ func telegramMessageContent(msg *telegramMessage) string {
 	return strings.TrimSpace(msg.Caption)
 }
 
-func buildTelegramDelivery(msg *telegramMessage) bus.Delivery {
+func buildTelegramDelivery(msg *models.Message) bus.Delivery {
 	if msg == nil {
 		return bus.Delivery{}
 	}
 	d := bus.Delivery{
-		MessageID: strconv.Itoa(msg.MessageID),
-		IsDirect:  strings.EqualFold(strings.TrimSpace(msg.Chat.Type), "private"),
+		MessageID: strconv.Itoa(msg.ID),
+		IsDirect:  msg.Chat.Type == models.ChatTypePrivate,
 	}
-	if msg.ReplyToMessage != nil && msg.ReplyToMessage.MessageID > 0 {
-		d.ReplyToID = strconv.Itoa(msg.ReplyToMessage.MessageID)
+	if msg.ReplyToMessage != nil && msg.ReplyToMessage.ID > 0 {
+		d.ReplyToID = strconv.Itoa(msg.ReplyToMessage.ID)
 	}
 	if msg.MessageThreadID > 0 {
-		d.ThreadID = strconv.FormatInt(msg.MessageThreadID, 10)
+		d.ThreadID = strconv.Itoa(msg.MessageThreadID)
 	}
 	return d
 }
@@ -308,60 +322,12 @@ func clampTelegramPollTimeout(v int) int {
 	return v
 }
 
-func telegramPollBackoff(attempt int) time.Duration {
-	if attempt < 1 {
-		attempt = 1
+func clampTelegramWorkers(v int) int {
+	if v <= 0 {
+		return 2
 	}
-	shift := min(attempt-1, 5)
-	return 300 * time.Millisecond * time.Duration(1<<shift)
-}
-
-type telegramAPIEnvelope struct {
-	OK          bool            `json:"ok"`
-	Result      json.RawMessage `json:"result"`
-	Description string          `json:"description"`
-}
-
-type telegramGetUpdatesRequest struct {
-	Offset         int64    `json:"offset,omitempty"`
-	Timeout        int      `json:"timeout,omitempty"`
-	AllowedUpdates []string `json:"allowed_updates,omitempty"`
-}
-
-type telegramSendMessageRequest struct {
-	ChatID          string                   `json:"chat_id"`
-	Text            string                   `json:"text"`
-	ReplyParameters *telegramReplyParameters `json:"reply_parameters,omitempty"`
-}
-
-type telegramReplyParameters struct {
-	MessageID                int64 `json:"message_id"`
-	AllowSendingWithoutReply bool  `json:"allow_sending_without_reply,omitempty"`
-}
-
-type telegramUpdate struct {
-	UpdateID      int64            `json:"update_id"`
-	Message       *telegramMessage `json:"message,omitempty"`
-	EditedMessage *telegramMessage `json:"edited_message,omitempty"`
-}
-
-type telegramMessage struct {
-	MessageID       int              `json:"message_id"`
-	MessageThreadID int64            `json:"message_thread_id,omitempty"`
-	From            *telegramUser    `json:"from,omitempty"`
-	Chat            telegramChat     `json:"chat"`
-	Text            string           `json:"text,omitempty"`
-	Caption         string           `json:"caption,omitempty"`
-	ReplyToMessage  *telegramMessage `json:"reply_to_message,omitempty"`
-}
-
-type telegramUser struct {
-	ID       int64  `json:"id"`
-	IsBot    bool   `json:"is_bot"`
-	Username string `json:"username,omitempty"`
-}
-
-type telegramChat struct {
-	ID   int64  `json:"id"`
-	Type string `json:"type,omitempty"`
+	if v > 8 {
+		return 8
+	}
+	return v
 }

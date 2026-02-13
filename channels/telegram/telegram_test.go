@@ -1,8 +1,13 @@
 package telegram
 
 import (
+	"context"
+	"errors"
 	"testing"
+	"time"
 
+	tgbot "github.com/go-telegram/bot"
+	"github.com/go-telegram/bot/models"
 	"github.com/mosaxiv/clawlet/bus"
 )
 
@@ -43,14 +48,14 @@ func TestResolveTelegramReplyTarget(t *testing.T) {
 
 func TestTelegramSenderID(t *testing.T) {
 	t.Run("id and username", func(t *testing.T) {
-		got := telegramSenderID(&telegramUser{ID: 1001, Username: "@alice"})
+		got := telegramSenderID(&models.User{ID: 1001, Username: "@alice"})
 		if got != "1001|alice" {
 			t.Fatalf("unexpected sender id: %q", got)
 		}
 	})
 
 	t.Run("id only", func(t *testing.T) {
-		got := telegramSenderID(&telegramUser{ID: 1002})
+		got := telegramSenderID(&models.User{ID: 1002})
 		if got != "1002" {
 			t.Fatalf("unexpected sender id: %q", got)
 		}
@@ -58,15 +63,15 @@ func TestTelegramSenderID(t *testing.T) {
 }
 
 func TestBuildTelegramDelivery(t *testing.T) {
-	msg := &telegramMessage{
-		MessageID:       77,
+	msg := &models.Message{
+		ID:              77,
 		MessageThreadID: 123456,
-		Chat: telegramChat{
+		Chat: models.Chat{
 			ID:   9,
-			Type: "private",
+			Type: models.ChatTypePrivate,
 		},
-		ReplyToMessage: &telegramMessage{
-			MessageID: 66,
+		ReplyToMessage: &models.Message{
+			ID: 66,
 		},
 	}
 
@@ -86,4 +91,40 @@ func TestClampTelegramPollTimeout(t *testing.T) {
 	if got := clampTelegramPollTimeout(15); got != 15 {
 		t.Fatalf("expected 15, got %d", got)
 	}
+}
+
+func TestClampTelegramWorkers(t *testing.T) {
+	if got := clampTelegramWorkers(0); got != 2 {
+		t.Fatalf("expected default 2, got %d", got)
+	}
+	if got := clampTelegramWorkers(99); got != 8 {
+		t.Fatalf("expected max 8, got %d", got)
+	}
+	if got := clampTelegramWorkers(4); got != 4 {
+		t.Fatalf("expected 4, got %d", got)
+	}
+}
+
+func TestShouldRetryTelegramSend(t *testing.T) {
+	t.Run("retry on too many requests", func(t *testing.T) {
+		retry, wait := shouldRetryTelegramSend(&tgbot.TooManyRequestsError{RetryAfter: 2}, 1)
+		if !retry || wait != 2*time.Second {
+			t.Fatalf("expected retry wait=2s, got retry=%v wait=%v", retry, wait)
+		}
+	})
+
+	t.Run("retry on 5xx", func(t *testing.T) {
+		err := errors.New("error response from telegram for method sendMessage, 503 service unavailable")
+		retry, wait := shouldRetryTelegramSend(err, 2)
+		if !retry || wait <= 0 {
+			t.Fatalf("expected retry, got retry=%v wait=%v", retry, wait)
+		}
+	})
+
+	t.Run("no retry on context cancel", func(t *testing.T) {
+		retry, wait := shouldRetryTelegramSend(context.Canceled, 1)
+		if retry || wait != 0 {
+			t.Fatalf("expected no retry, got retry=%v wait=%v", retry, wait)
+		}
+	})
 }
