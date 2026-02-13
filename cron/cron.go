@@ -65,6 +65,8 @@ type Service struct {
 	timer   *time.Timer
 }
 
+var cronExprCache sync.Map // map[string]robcron.Schedule
+
 func NewService(storePath string, onJob func(ctx context.Context, job Job) (string, error)) *Service {
 	return &Service{
 		storePath: storePath,
@@ -417,9 +419,20 @@ func validateSchedule(s Schedule, now int64) error {
 }
 
 func parseCron5(expr string) (robcron.Schedule, error) {
+	if cached, ok := cronExprCache.Load(expr); ok {
+		s, ok := cached.(robcron.Schedule)
+		if ok {
+			return s, nil
+		}
+	}
 	// Standard 5-field cron (min hour dom mon dow).
 	parser := robcron.NewParser(robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow)
-	return parser.Parse(expr)
+	s, err := parser.Parse(expr)
+	if err != nil {
+		return nil, err
+	}
+	cronExprCache.Store(expr, s)
+	return s, nil
 }
 
 func newID() string {
