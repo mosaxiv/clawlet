@@ -193,6 +193,10 @@ Example config (merge into `~/.clawlet/config.json`):
 Then run:
 
 ```bash
+# one-time/maintenance login flow
+clawlet channels login --channel whatsapp
+
+# normal runtime
 clawlet gateway
 ```
 
