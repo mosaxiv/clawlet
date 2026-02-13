@@ -10,9 +10,11 @@ import (
 
 func main() {
 	root := &cli.Command{
-		Name:  "clawlet",
-		Usage: "minimal Go agent",
+		Name:    "clawlet",
+		Usage:   "minimal Go agent",
+		Version: resolveVersion(),
 		Commands: []*cli.Command{
+			cmdVersion(),
 			cmdOnboard(),
 			cmdStatus(),
 			cmdAgent(),
