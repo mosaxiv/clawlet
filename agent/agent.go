@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mosaxiv/clawlet/config"
@@ -39,6 +40,9 @@ type Agent struct {
 
 	sessionDir string
 	sess       *session.Session
+
+	consolidationMu      sync.Mutex
+	consolidationRunning bool
 }
 
 func New(opts Options) (*Agent, error) {
@@ -104,11 +108,7 @@ func New(opts Options) (*Agent, error) {
 }
 
 func (a *Agent) Process(ctx context.Context, input string) (string, error) {
-	if done, err := maybeConsolidateSession(ctx, a.workspace, a.sess, a.memoryWindow, func(ctx context.Context, currentMemory, conversation string) (string, string, error) {
-		return summarizeConsolidationWithLLM(ctx, a.llm, currentMemory, conversation)
-	}); err == nil && done {
-		_ = session.Save(a.sessionDir, a.sess)
-	}
+	a.scheduleConsolidation()
 
 	sys := a.systemPrompt()
 	history := a.sess.History(a.memoryWindow)
@@ -122,6 +122,7 @@ func (a *Agent) Process(ctx context.Context, input string) (string, error) {
 	toolsDefs := a.tools.Definitions()
 
 	var final string
+	toolsUsed := make([]string, 0, 8)
 	for iter := 0; iter < a.maxIters; iter++ {
 		res, err := a.llm.Chat(ctx, messages, toolsDefs)
 		if err != nil {
@@ -129,6 +130,9 @@ func (a *Agent) Process(ctx context.Context, input string) (string, error) {
 		}
 
 		if res.HasToolCalls() {
+			for _, tc := range res.ToolCalls {
+				toolsUsed = append(toolsUsed, tc.Name)
+			}
 			messages = appendToolRound(messages, res.Content, res.ToolCalls, func(tc llm.ToolCall) string {
 				if a.verbose {
 					fmt.Fprintf(os.Stderr, "tool: %s %s\n", tc.Name, previewJSON(tc.Arguments, 200))
@@ -154,9 +158,53 @@ func (a *Agent) Process(ctx context.Context, input string) (string, error) {
 	}
 
 	a.sess.Add("user", input)
-	a.sess.Add("assistant", final)
+	a.sess.AddWithTools("assistant", final, toolsUsed)
 	_ = session.Save(a.sessionDir, a.sess)
 	return final, nil
+}
+
+func (a *Agent) scheduleConsolidation() {
+	if a == nil || a.sess == nil {
+		return
+	}
+	if !a.sess.NeedsConsolidation(a.memoryWindow) {
+		return
+	}
+
+	a.consolidationMu.Lock()
+	if a.consolidationRunning {
+		a.consolidationMu.Unlock()
+		return
+	}
+	a.consolidationRunning = true
+	a.consolidationMu.Unlock()
+
+	go func() {
+		defer func() {
+			a.consolidationMu.Lock()
+			a.consolidationRunning = false
+			a.consolidationMu.Unlock()
+		}()
+
+		cctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		done, err := maybeConsolidateSession(cctx, a.workspace, a.sess, a.memoryWindow, func(ctx context.Context, currentMemory, conversation string) (string, string, error) {
+			return summarizeConsolidationWithLLM(ctx, a.llm, currentMemory, conversation)
+		})
+		if err != nil {
+			if a.verbose {
+				fmt.Fprintf(os.Stderr, "consolidation error: %v\n", err)
+			}
+			return
+		}
+		if !done {
+			return
+		}
+		if err := session.Save(a.sessionDir, a.sess); err != nil && a.verbose {
+			fmt.Fprintf(os.Stderr, "consolidation save error: %v\n", err)
+		}
+	}()
 }
 
 func (a *Agent) systemPrompt() string {

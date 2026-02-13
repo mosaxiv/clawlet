@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mosaxiv/clawlet/bus"
@@ -35,6 +36,8 @@ type Loop struct {
 	cron *cron.Service
 
 	verbose bool
+
+	consolidationInFlight sync.Map
 }
 
 type LoopOptions struct {
@@ -191,11 +194,7 @@ func (l *Loop) processDirect(ctx context.Context, content, sessionKey, channel, 
 	if err != nil {
 		return "", err
 	}
-	if done, err := maybeConsolidateSession(ctx, l.workspace, sess, l.memoryWindow, func(ctx context.Context, currentMemory, conversation string) (string, string, error) {
-		return summarizeConsolidationWithLLM(ctx, l.llm, currentMemory, conversation)
-	}); err == nil && done {
-		_ = l.sessions.Save(sess)
-	}
+	l.scheduleConsolidation(sessionKey, sess)
 
 	history := sess.History(l.memoryWindow)
 	messages := make([]llm.Message, 0, 1+len(history)+1)
@@ -209,12 +208,16 @@ func (l *Loop) processDirect(ctx context.Context, content, sessionKey, channel, 
 	toolsDefs := l.tools.Definitions()
 
 	var final string
+	toolsUsed := make([]string, 0, 8)
 	for iter := 0; iter < l.maxIters; iter++ {
 		res, err := l.llm.Chat(ctx, messages, toolsDefs)
 		if err != nil {
 			return "", err
 		}
 		if res.HasToolCalls() {
+			for _, tc := range res.ToolCalls {
+				toolsUsed = append(toolsUsed, tc.Name)
+			}
 			messages = appendToolRound(messages, res.Content, res.ToolCalls, func(tc llm.ToolCall) string {
 				out, err := l.tools.Execute(ctx, tools.Context{
 					Channel:    channel,
@@ -236,9 +239,43 @@ func (l *Loop) processDirect(ctx context.Context, content, sessionKey, channel, 
 	}
 
 	sess.Add("user", content)
-	sess.Add("assistant", final)
+	sess.AddWithTools("assistant", final, toolsUsed)
 	_ = l.sessions.Save(sess)
 	return final, nil
+}
+
+func (l *Loop) scheduleConsolidation(sessionKey string, sess *session.Session) {
+	if l == nil || sess == nil {
+		return
+	}
+	if !sess.NeedsConsolidation(l.memoryWindow) {
+		return
+	}
+	if _, loaded := l.consolidationInFlight.LoadOrStore(sessionKey, struct{}{}); loaded {
+		return
+	}
+	go func() {
+		defer l.consolidationInFlight.Delete(sessionKey)
+
+		cctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		done, err := maybeConsolidateSession(cctx, l.workspace, sess, l.memoryWindow, func(ctx context.Context, currentMemory, conversation string) (string, string, error) {
+			return summarizeConsolidationWithLLM(ctx, l.llm, currentMemory, conversation)
+		})
+		if err != nil {
+			if l.verbose {
+				fmt.Fprintf(os.Stderr, "consolidation error (%s): %v\n", sessionKey, err)
+			}
+			return
+		}
+		if !done {
+			return
+		}
+		if err := l.sessions.Save(sess); err != nil && l.verbose {
+			fmt.Fprintf(os.Stderr, "consolidation save error (%s): %v\n", sessionKey, err)
+		}
+	}()
 }
 
 func (l *Loop) buildSystemPrompt(channel, chatID string) string {

@@ -35,12 +35,15 @@ func TestMaybeConsolidateSession_TrimAndArchive(t *testing.T) {
 	sess := session.New("cli:test")
 	for range 15 {
 		sess.Add("user", "question")
-		sess.Add("assistant", "answer")
+		sess.AddWithTools("assistant", "answer", []string{"read_file", "exec"})
 	}
 
 	summarize := func(ctx context.Context, currentMemory, conversation string) (string, string, error) {
 		if !strings.Contains(conversation, "USER: question") {
 			t.Fatalf("unexpected conversation: %s", conversation)
+		}
+		if !strings.Contains(conversation, "ASSISTANT [tools: read_file, exec]: answer") {
+			t.Fatalf("missing tools_used in conversation: %s", conversation)
 		}
 		return "[2026-02-13 23:20] archived summary", "# Long-term Memory\n\n- prefers concise Japanese\n", nil
 	}

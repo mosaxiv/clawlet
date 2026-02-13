@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/mosaxiv/clawlet/llm"
 	"github.com/mosaxiv/clawlet/memory"
@@ -30,23 +29,20 @@ func maybeConsolidateSession(
 	if memoryWindow <= 0 {
 		memoryWindow = 50
 	}
-	if len(sess.Messages) <= memoryWindow {
+	oldMessages, keep, version, ok := sess.SnapshotForConsolidation(memoryWindow)
+	if !ok {
 		return false, nil
 	}
-
-	keep := min(10, max(2, memoryWindow/2))
-	if keep >= len(sess.Messages) {
-		return false, nil
-	}
-
-	store := memory.New(workspace)
-	oldMessages := sess.Messages[:len(sess.Messages)-keep]
 	conversation := formatConsolidationConversation(oldMessages)
+	store := memory.New(workspace)
 	currentMemory := store.ReadLongTerm()
 
 	historyEntry, memoryUpdate, err := summarize(ctx, currentMemory, conversation)
 	if err != nil {
 		return false, err
+	}
+	if !sess.ApplyConsolidation(version, keep) {
+		return false, nil
 	}
 
 	if strings.TrimSpace(historyEntry) != "" {
@@ -60,11 +56,6 @@ func maybeConsolidateSession(
 			return false, err
 		}
 	}
-
-	tail := make([]session.Message, 0, keep)
-	tail = append(tail, sess.Messages[len(sess.Messages)-keep:]...)
-	sess.Messages = tail
-	sess.UpdatedAt = time.Now()
 	return true, nil
 }
 
@@ -121,13 +112,32 @@ func formatConsolidationConversation(msgs []session.Message) string {
 		if role == "" {
 			role = "UNKNOWN"
 		}
+		toolsLabel := formatToolsLabel(m.ToolsUsed)
 		if ts == "" {
-			lines = append(lines, fmt.Sprintf("%s: %s", role, content))
+			lines = append(lines, fmt.Sprintf("%s%s: %s", role, toolsLabel, content))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("[%s] %s: %s", ts, role, content))
+		lines = append(lines, fmt.Sprintf("[%s] %s%s: %s", ts, role, toolsLabel, content))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatToolsLabel(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	tools := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		tools = append(tools, name)
+	}
+	if len(tools) == 0 {
+		return ""
+	}
+	return " [tools: " + strings.Join(tools, ", ") + "]"
 }
 
 func buildConsolidationPrompt(currentMemory, conversation string) string {
