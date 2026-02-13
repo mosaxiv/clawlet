@@ -12,6 +12,7 @@ import (
 	"github.com/mosaxiv/clawlet/channels"
 	"github.com/mosaxiv/clawlet/channels/discord"
 	"github.com/mosaxiv/clawlet/channels/slack"
+	"github.com/mosaxiv/clawlet/channels/telegram"
 	"github.com/mosaxiv/clawlet/cron"
 	"github.com/mosaxiv/clawlet/heartbeat"
 	"github.com/mosaxiv/clawlet/paths"
@@ -114,6 +115,12 @@ func cmdGateway() *cli.Command {
 				}
 				sl = slack.New(cfg.Channels.Slack, b)
 				cm.Add(sl)
+			}
+			if cfg.Channels.Telegram.Enabled {
+				if strings.TrimSpace(cfg.Channels.Telegram.Token) == "" {
+					return fmt.Errorf("telegram enabled but token is empty")
+				}
+				cm.Add(telegram.New(cfg.Channels.Telegram, b))
 			}
 
 			if err := cm.StartAll(ctx); err != nil {

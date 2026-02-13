@@ -105,8 +105,9 @@ type GatewayConfig struct {
 }
 
 type ChannelsConfig struct {
-	Discord DiscordConfig `json:"discord"`
-	Slack   SlackConfig   `json:"slack"`
+	Discord  DiscordConfig  `json:"discord"`
+	Slack    SlackConfig    `json:"slack"`
+	Telegram TelegramConfig `json:"telegram"`
 }
 
 type DiscordConfig struct {
@@ -133,6 +134,15 @@ type SlackConfig struct {
 
 type SlackDMConfig struct {
 	Enabled bool `json:"enabled"`
+}
+
+// Telegram (Bot API via long polling).
+type TelegramConfig struct {
+	Enabled        bool     `json:"enabled"`
+	Token          string   `json:"token"`
+	AllowFrom      []string `json:"allowFrom"`
+	BaseURL        string   `json:"baseURL,omitempty"` // default: https://api.telegram.org
+	PollTimeoutSec int      `json:"pollTimeoutSec,omitempty"`
 }
 
 const (
@@ -195,6 +205,13 @@ func Default() *Config {
 				GroupAllowFrom: nil,
 				DM:             &SlackDMConfig{Enabled: true},
 			},
+			Telegram: TelegramConfig{
+				Enabled:        false,
+				Token:          "",
+				AllowFrom:      nil,
+				BaseURL:        "https://api.telegram.org",
+				PollTimeoutSec: 25,
+			},
 		},
 	}
 }
@@ -248,6 +265,12 @@ func Load(path string) (*Config, error) {
 	// Default DM policy is open (enabled).
 	if cfg.Channels.Slack.DM == nil {
 		cfg.Channels.Slack.DM = &SlackDMConfig{Enabled: true}
+	}
+	if strings.TrimSpace(cfg.Channels.Telegram.BaseURL) == "" {
+		cfg.Channels.Telegram.BaseURL = "https://api.telegram.org"
+	}
+	if cfg.Channels.Telegram.PollTimeoutSec <= 0 {
+		cfg.Channels.Telegram.PollTimeoutSec = 25
 	}
 
 	// Apply model routing to populate cfg.LLM for runtime use.
