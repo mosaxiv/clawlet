@@ -3,19 +3,12 @@ package session
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
-)
-
-var (
-	appendCompactionEverySaves             = 100
-	appendCompactionMaxFileBytes     int64 = 4 << 20
-	appendCompactionMaxMetadataLines       = 200
 )
 
 type Message struct {
@@ -39,12 +32,8 @@ type Session struct {
 	Messages  []Message
 	Metadata  map[string]any
 
-	mu                sync.Mutex
-	persistedMessages int
-	appendSaves       int
-	metadataLineCount int
-	needsCompaction   bool
-	version           uint64
+	mu      sync.Mutex
+	version uint64
 }
 
 type Manager struct {
@@ -103,7 +92,6 @@ func Load(dir, key string) (*Session, error) {
 		Messages: []Message{},
 		Metadata: map[string]any{},
 	}
-	metadataLines := 0
 
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
@@ -116,7 +104,6 @@ func Load(dir, key string) (*Session, error) {
 			continue
 		}
 		if raw["_type"] == "metadata" {
-			metadataLines++
 			var ml metadataLine
 			if err := json.Unmarshal([]byte(line), &ml); err == nil {
 				if t, err := time.Parse(time.RFC3339Nano, ml.CreatedAt); err == nil {
@@ -145,9 +132,6 @@ func Load(dir, key string) (*Session, error) {
 	if s.UpdatedAt.IsZero() {
 		s.UpdatedAt = time.Now()
 	}
-	s.persistedMessages = len(s.Messages)
-	s.metadataLineCount = metadataLines
-	s.needsCompaction = metadataLines > appendCompactionMaxMetadataLines
 	return s, nil
 }
 
@@ -239,7 +223,6 @@ func (s *Session) ApplyConsolidation(version uint64, keep int) bool {
 	s.Messages = cloneMessages(s.Messages[len(s.Messages)-keep:])
 	s.UpdatedAt = time.Now()
 	s.version++
-	s.needsCompaction = true
 	return true
 }
 
@@ -252,35 +235,7 @@ func Save(dir string, s *Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.persistedMessages > len(s.Messages) {
-		s.needsCompaction = true
-	}
-	if shouldCompact(path, s) {
-		return saveCompactLocked(path, s)
-	}
-	return saveAppendLocked(path, s)
-}
-
-func shouldCompact(path string, s *Session) bool {
-	if s.needsCompaction {
-		return true
-	}
-	if appendCompactionEverySaves > 0 && s.appendSaves >= appendCompactionEverySaves {
-		return true
-	}
-	if appendCompactionMaxMetadataLines > 0 && s.metadataLineCount >= appendCompactionMaxMetadataLines {
-		return true
-	}
-	if appendCompactionMaxFileBytes > 0 {
-		if info, err := os.Stat(path); err == nil && info.Size() >= appendCompactionMaxFileBytes {
-			return true
-		}
-	}
-	return false
-}
-
-func saveAppendLocked(path string, s *Session) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
@@ -299,49 +254,6 @@ func saveAppendLocked(path string, s *Session) error {
 		}
 	}
 
-	start := max(0, s.persistedMessages)
-	for i := start; i < len(s.Messages); i++ {
-		if b, err := json.Marshal(s.Messages[i]); err == nil {
-			if _, err := bw.Write(append(b, '\n')); err != nil {
-				_ = f.Close()
-				return err
-			}
-		}
-	}
-	if err := bw.Flush(); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-
-	s.persistedMessages = len(s.Messages)
-	s.appendSaves++
-	s.metadataLineCount++
-	return nil
-}
-
-func saveCompactLocked(path string, s *Session) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	bw := bufio.NewWriter(f)
-
-	meta := metadataLine{
-		Type:      "metadata",
-		CreatedAt: s.CreatedAt.Format(time.RFC3339Nano),
-		UpdatedAt: s.UpdatedAt.Format(time.RFC3339Nano),
-		Metadata:  s.Metadata,
-	}
-	if b, err := json.Marshal(meta); err == nil {
-		if _, err := bw.Write(append(b, '\n')); err != nil {
-			_ = f.Close()
-			return err
-		}
-	}
 	for _, m := range s.Messages {
 		if b, err := json.Marshal(m); err == nil {
 			if _, err := bw.Write(append(b, '\n')); err != nil {
@@ -357,14 +269,6 @@ func saveCompactLocked(path string, s *Session) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename: %w", err)
-	}
-
-	s.persistedMessages = len(s.Messages)
-	s.appendSaves = 0
-	s.metadataLineCount = 1
-	s.needsCompaction = false
 	return nil
 }
 
