@@ -188,6 +188,10 @@ func (l *Loop) processDirect(ctx context.Context, content, sessionKey, channel, 
 	if err != nil {
 		return "", err
 	}
+	if handled, response := handleSlashCommand(sess, content); handled {
+		_ = l.sessions.Save(sess)
+		return response, nil
+	}
 
 	messages := make([]llm.Message, 0, 1+len(sess.Messages)+1)
 	system := l.buildSystemPrompt(channel, chatID)
@@ -242,6 +246,34 @@ func (l *Loop) processDirect(ctx context.Context, content, sessionKey, channel, 
 	sess.Add("assistant", final)
 	_ = l.sessions.Save(sess)
 	return final, nil
+}
+
+func handleSlashCommand(sess *session.Session, content string) (bool, string) {
+	switch normalizeSlashCommand(content) {
+	case "/new":
+		if sess == nil {
+			return true, "New session started."
+		}
+		sess.Messages = nil
+		sess.UpdatedAt = time.Now()
+		return true, "New session started."
+	case "/help":
+		return true, "clawlet commands:\n/new - Start a new conversation\n/help - Show available commands"
+	default:
+		return false, ""
+	}
+}
+
+func normalizeSlashCommand(content string) string {
+	fields := strings.Fields(strings.TrimSpace(content))
+	if len(fields) == 0 {
+		return ""
+	}
+	cmd := strings.ToLower(fields[0])
+	if at := strings.IndexRune(cmd, '@'); at > 0 {
+		cmd = cmd[:at]
+	}
+	return cmd
 }
 
 func (l *Loop) buildSystemPrompt(channel, chatID string) string {

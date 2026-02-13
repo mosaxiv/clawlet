@@ -74,6 +74,7 @@ func (c *Channel) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	_, _ = b.DeleteWebhook(runCtx, &tgbot.DeleteWebhookParams{DropPendingUpdates: true})
 
 	c.mu.Lock()
 	c.bot = b
@@ -126,8 +127,9 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	}
 
 	params := &tgbot.SendMessageParams{
-		ChatID: chatIDAny,
-		Text:   text,
+		ChatID:    chatIDAny,
+		Text:      markdownToTelegramHTML(text),
+		ParseMode: models.ParseModeHTML,
 	}
 	if replyTo := resolveTelegramReplyTarget(msg); replyTo > 0 {
 		params.ReplyParameters = &models.ReplyParameters{
@@ -135,26 +137,15 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 			AllowSendingWithoutReply: true,
 		}
 	}
-
-	const maxAttempts = 3
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err = b.SendMessage(ctx, params)
-		if err == nil {
-			return nil
-		}
-		retry, wait := shouldRetryTelegramSend(err, attempt)
-		if !retry || attempt == maxAttempts {
-			return err
-		}
-		t := time.NewTimer(wait)
-		select {
-		case <-ctx.Done():
-			t.Stop()
-			return ctx.Err()
-		case <-t.C:
-		}
+	if err := c.sendMessageWithRetry(ctx, b, params); err == nil {
+		return nil
+	} else if !isTelegramParseError(err) {
+		return err
 	}
-	return nil
+
+	params.Text = text
+	params.ParseMode = ""
+	return c.sendMessageWithRetry(ctx, b, params)
 }
 
 func (c *Channel) onUpdate(ctx context.Context, _ *tgbot.Bot, up *models.Update) {
@@ -180,6 +171,7 @@ func (c *Channel) onUpdate(ctx context.Context, _ *tgbot.Bot, up *models.Update)
 	}
 
 	chatID := strconv.FormatInt(msg.Chat.ID, 10)
+	c.sendTypingHint(chatID)
 	// Avoid blocking telegram worker goroutines indefinitely when bus is saturated.
 	publishCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	_ = c.bus.PublishInbound(publishCtx, bus.InboundMessage{
@@ -191,6 +183,55 @@ func (c *Channel) onUpdate(ctx context.Context, _ *tgbot.Bot, up *models.Update)
 		Delivery:   buildTelegramDelivery(msg),
 	})
 	cancel()
+}
+
+func (c *Channel) sendMessageWithRetry(ctx context.Context, b *tgbot.Bot, params *tgbot.SendMessageParams) error {
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		_, err := b.SendMessage(ctx, params)
+		if err == nil {
+			return nil
+		}
+		retry, wait := shouldRetryTelegramSend(err, attempt)
+		if !retry || attempt == maxAttempts {
+			return err
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		case <-t.C:
+		}
+	}
+	return nil
+}
+
+func (c *Channel) sendTypingHint(chatID string) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return
+	}
+	chatIDAny, err := parseTelegramChatID(chatID)
+	if err != nil {
+		return
+	}
+
+	c.mu.Lock()
+	b := c.bot
+	c.mu.Unlock()
+	if b == nil {
+		return
+	}
+
+	go func(bot *tgbot.Bot, id any) {
+		typingCtx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+		defer cancel()
+		_, _ = bot.SendChatAction(typingCtx, &tgbot.SendChatActionParams{
+			ChatID: id,
+			Action: models.ChatActionTyping,
+		})
+	}(b, chatIDAny)
 }
 
 func parseTelegramChatID(v string) (any, error) {
@@ -249,6 +290,15 @@ func isTelegram5xxError(err error) bool {
 		return false
 	}
 	return code >= 500 && code <= 599
+}
+
+func isTelegramParseError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "can't parse entities") ||
+		(strings.Contains(msg, "parse entities") && strings.Contains(msg, " 400 "))
 }
 
 func telegramSendBackoff(attempt int) time.Duration {

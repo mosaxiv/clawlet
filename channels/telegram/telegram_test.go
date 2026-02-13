@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,4 +128,33 @@ func TestShouldRetryTelegramSend(t *testing.T) {
 			t.Fatalf("expected no retry, got retry=%v wait=%v", retry, wait)
 		}
 	})
+}
+
+func TestMarkdownToTelegramHTML(t *testing.T) {
+	in := "# Title\n**bold** _italic_ ~~strike~~\n- item\n`x<y`"
+	got := markdownToTelegramHTML(in)
+
+	checks := []string{
+		"Title",
+		"<b>bold</b>",
+		"<i>italic</i>",
+		"<s>strike</s>",
+		"• item",
+		"<code>x&lt;y</code>",
+	}
+	for _, s := range checks {
+		if !strings.Contains(got, s) {
+			t.Fatalf("expected %q in %q", s, got)
+		}
+	}
+}
+
+func TestIsTelegramParseError(t *testing.T) {
+	err := errors.New("error response from telegram for method sendMessage, 400 Bad Request: can't parse entities")
+	if !isTelegramParseError(err) {
+		t.Fatalf("expected parse error detection")
+	}
+	if isTelegramParseError(errors.New("error response from telegram for method sendMessage, 403 Forbidden")) {
+		t.Fatalf("unexpected parse error detection")
+	}
 }
