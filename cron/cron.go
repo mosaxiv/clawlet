@@ -121,6 +121,13 @@ func (s *Service) Add(name string, sched Schedule, payload Payload) (Job, error)
 		return Job{}, err
 	}
 	now := nowMS()
+	if err := validateSchedule(sched, now); err != nil {
+		return Job{}, err
+	}
+	nextRun := computeNextRunMS(sched, now)
+	if nextRun <= 0 {
+		return Job{}, fmt.Errorf("failed to compute next run for schedule kind: %s", sched.Kind)
+	}
 	j := Job{
 		ID:          newID(),
 		Name:        name,
@@ -131,7 +138,7 @@ func (s *Service) Add(name string, sched Schedule, payload Payload) (Job, error)
 		CreatedAtMS: now,
 		UpdatedAtMS: now,
 	}
-	j.State.NextRunAtMS = computeNextRunMS(j.Schedule, now)
+	j.State.NextRunAtMS = nextRun
 	s.store.Jobs = append(s.store.Jobs, j)
 	if err := s.saveLocked(); err != nil {
 		return Job{}, err
@@ -367,9 +374,7 @@ func computeNextRunMS(s Schedule, now int64) int64 {
 		if strings.TrimSpace(s.Expr) == "" {
 			return 0
 		}
-		// Standard 5-field cron (min hour dom mon dow).
-		parser := robcron.NewParser(robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow)
-		sched, err := parser.Parse(s.Expr)
+		sched, err := parseCron5(strings.TrimSpace(s.Expr))
 		if err != nil {
 			return 0
 		}
@@ -381,6 +386,41 @@ func computeNextRunMS(s Schedule, now int64) int64 {
 }
 
 func nowMS() int64 { return time.Now().UnixMilli() }
+
+func validateSchedule(s Schedule, now int64) error {
+	switch s.Kind {
+	case "at":
+		if s.AtMS <= 0 {
+			return fmt.Errorf("at schedule requires a valid timestamp")
+		}
+		if s.AtMS <= now {
+			return fmt.Errorf("at schedule must be in the future")
+		}
+		return nil
+	case "every":
+		if s.EveryMS <= 0 {
+			return fmt.Errorf("every schedule requires everyMs > 0")
+		}
+		return nil
+	case "cron":
+		expr := strings.TrimSpace(s.Expr)
+		if expr == "" {
+			return fmt.Errorf("cron schedule requires expr")
+		}
+		if _, err := parseCron5(expr); err != nil {
+			return fmt.Errorf("invalid cron expression: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown schedule kind: %s", s.Kind)
+	}
+}
+
+func parseCron5(expr string) (robcron.Schedule, error) {
+	// Standard 5-field cron (min hour dom mon dow).
+	parser := robcron.NewParser(robcron.Minute | robcron.Hour | robcron.Dom | robcron.Month | robcron.Dow)
+	return parser.Parse(expr)
+}
 
 func newID() string {
 	var b [16]byte

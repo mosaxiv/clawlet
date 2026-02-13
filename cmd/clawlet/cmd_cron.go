@@ -74,28 +74,53 @@ func cronAddCmd() *cli.Command {
 				jname = message
 			}
 
+			every := cmd.Int("every")
+			cronExpr := strings.TrimSpace(cmd.String("cron"))
+			at := strings.TrimSpace(cmd.String("at"))
+
+			scheduleFlags := 0
+			if every != 0 {
+				scheduleFlags++
+			}
+			if cronExpr != "" {
+				scheduleFlags++
+			}
+			if at != "" {
+				scheduleFlags++
+			}
+			if scheduleFlags != 1 {
+				return cli.Exit("exactly one of --every/--cron/--at must be set", 2)
+			}
+
 			var sched cron.Schedule
 			switch {
-			case cmd.Int("every") > 0:
-				sched = cron.Schedule{Kind: "every", EveryMS: int64(cmd.Int("every")) * 1000}
-			case strings.TrimSpace(cmd.String("cron")) != "":
-				sched = cron.Schedule{Kind: "cron", Expr: strings.TrimSpace(cmd.String("cron"))}
-			case strings.TrimSpace(cmd.String("at")) != "":
-				t, err := time.Parse(time.RFC3339, strings.TrimSpace(cmd.String("at")))
+			case every != 0:
+				if every <= 0 {
+					return cli.Exit("--every must be a positive number of seconds", 2)
+				}
+				sched = cron.Schedule{Kind: "every", EveryMS: int64(every) * 1000}
+			case cronExpr != "":
+				sched = cron.Schedule{Kind: "cron", Expr: cronExpr}
+			case at != "":
+				t, err := time.Parse(time.RFC3339, at)
 				if err != nil {
 					return err
 				}
 				sched = cron.Schedule{Kind: "at", AtMS: t.UnixMilli()}
-			default:
-				return cli.Exit("one of --every/--cron/--at is required", 2)
+			}
+
+			channel := strings.TrimSpace(cmd.String("channel"))
+			to := strings.TrimSpace(cmd.String("to"))
+			if (channel == "") != (to == "") {
+				return cli.Exit("--channel and --to must be provided together", 2)
 			}
 
 			payload := cron.Payload{
 				Kind:    "agent_turn",
 				Message: message,
 				Deliver: cmd.Bool("deliver"),
-				Channel: cmd.String("channel"),
-				To:      cmd.String("to"),
+				Channel: channel,
+				To:      to,
 			}
 
 			svc := cron.NewService(paths.CronStorePath(), nil)
