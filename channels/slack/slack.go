@@ -114,7 +114,7 @@ func (c *Channel) handleEvent(ctx context.Context, ev slackevents.EventsAPIEvent
 		if strings.TrimSpace(inner.BotID) != "" || strings.TrimSpace(inner.SubType) != "" {
 			return
 		}
-		c.publishInbound(ctx, "message", inner.User, inner.Channel, inner.ChannelType, inner.TimeStamp, inner.Text)
+		c.publishInbound(ctx, "message", inner.User, inner.Channel, inner.ChannelType, inner.TimeStamp, inner.ThreadTimeStamp, inner.Text)
 	case *slackevents.AppMentionEvent:
 		if inner == nil {
 			return
@@ -123,7 +123,7 @@ func (c *Channel) handleEvent(ctx context.Context, ev slackevents.EventsAPIEvent
 		if strings.TrimSpace(inner.BotID) != "" {
 			return
 		}
-		c.publishInbound(ctx, "app_mention", inner.User, inner.Channel, "", inner.TimeStamp, inner.Text)
+		c.publishInbound(ctx, "app_mention", inner.User, inner.Channel, "", inner.TimeStamp, inner.ThreadTimeStamp, inner.Text)
 	default:
 		return
 	}
@@ -165,7 +165,15 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		c.mu.Unlock()
 	}
 
-	_, _, err := api.PostMessageContext(ctx, ch, slack.MsgOptionText(text, false))
+	threadTS, direct := slackThreadMeta(msg)
+	opts := []slack.MsgOption{
+		slack.MsgOptionText(text, false),
+	}
+	// Keep channel conversations in thread; DMs/MPIMs do not use thread_ts.
+	if threadTS != "" && !direct {
+		opts = append(opts, slack.MsgOptionTS(threadTS))
+	}
+	_, _, err := api.PostMessageContext(ctx, ch, opts...)
 	return err
 }
 
@@ -194,11 +202,12 @@ func (c *Channel) runSocketEventLoop(ctx context.Context, sm *socketmode.Client)
 	}
 }
 
-func (c *Channel) publishInbound(ctx context.Context, eventType, user, ch, channelType, ts, text string) {
+func (c *Channel) publishInbound(ctx context.Context, eventType, user, ch, channelType, ts, threadTS, text string) {
 	user = strings.TrimSpace(user)
 	ch = strings.TrimSpace(ch)
 	channelType = strings.TrimSpace(channelType)
 	ts = strings.TrimSpace(ts)
+	threadTS = strings.TrimSpace(threadTS)
 	text = strings.TrimSpace(text)
 	if user == "" || ch == "" || text == "" {
 		return
@@ -212,6 +221,9 @@ func (c *Channel) publishInbound(ctx context.Context, eventType, user, ch, chann
 	text = c.stripBotMention(text)
 	if strings.TrimSpace(text) == "" {
 		return
+	}
+	if threadTS == "" {
+		threadTS = ts
 	}
 
 	// Best-effort :eyes: reaction (matches nanobot behavior).
@@ -230,6 +242,7 @@ func (c *Channel) publishInbound(ctx context.Context, eventType, user, ch, chann
 		ChatID:     ch,
 		Content:    text,
 		SessionKey: "slack:" + ch,
+		Delivery:   buildSlackDelivery(ts, threadTS, channelType),
 	})
 }
 
@@ -290,4 +303,29 @@ func (c *Channel) stripBotMention(text string) string {
 		text = strings.TrimSpace(strings.TrimPrefix(text, ","))
 	}
 	return strings.TrimSpace(text)
+}
+
+func slackThreadMeta(msg bus.OutboundMessage) (threadTS string, direct bool) {
+	threadTS = strings.TrimSpace(msg.Delivery.ThreadID)
+	if threadTS == "" {
+		threadTS = strings.TrimSpace(msg.Delivery.ReplyToID)
+	}
+	if threadTS == "" {
+		threadTS = strings.TrimSpace(msg.ReplyTo)
+	}
+	return threadTS, msg.Delivery.IsDirect
+}
+
+func buildSlackDelivery(ts, threadTS, channelType string) bus.Delivery {
+	ts = strings.TrimSpace(ts)
+	threadTS = strings.TrimSpace(threadTS)
+	channelType = strings.TrimSpace(channelType)
+	if threadTS == "" {
+		threadTS = ts
+	}
+	return bus.Delivery{
+		MessageID: ts,
+		ThreadID:  threadTS,
+		IsDirect:  channelType == "im" || channelType == "mpim",
+	}
 }

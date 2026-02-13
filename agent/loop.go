@@ -175,7 +175,12 @@ func (l *Loop) processInbound(ctx context.Context, msg bus.InboundMessage) (stri
 		sessionKey = msg.Channel + ":" + msg.ChatID
 	}
 	res, err := l.processDirect(ctx, msg.Content, sessionKey, msg.Channel, msg.ChatID)
-	return res, bus.OutboundMessage{Channel: msg.Channel, ChatID: msg.ChatID, Content: res}, err
+	return res, bus.OutboundMessage{
+		Channel:  msg.Channel,
+		ChatID:   msg.ChatID,
+		Content:  res,
+		Delivery: msg.Delivery,
+	}, err
 }
 
 func (l *Loop) processDirect(ctx context.Context, content, sessionKey, channel, chatID string) (string, error) {

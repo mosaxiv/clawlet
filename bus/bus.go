@@ -4,13 +4,20 @@ import (
 	"context"
 )
 
+type Delivery struct {
+	MessageID string
+	ReplyToID string
+	ThreadID  string
+	IsDirect  bool
+}
+
 type InboundMessage struct {
 	Channel    string
 	SenderID   string
 	ChatID     string
 	Content    string
 	SessionKey string // usually "channel:chat_id"
-	// Media/metadata can be added later if needed (keep minimal for now).
+	Delivery   Delivery
 }
 
 type OutboundMessage struct {
@@ -18,7 +25,7 @@ type OutboundMessage struct {
 	ChatID   string
 	Content  string
 	ReplyTo  string
-	Metadata map[string]any
+	Delivery Delivery
 }
 
 type Bus struct {

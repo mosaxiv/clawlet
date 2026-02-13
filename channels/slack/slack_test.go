@@ -1,6 +1,10 @@
 package slack
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/mosaxiv/clawlet/bus"
+)
 
 func TestStripBotMention(t *testing.T) {
 	c := &Channel{botUserID: "U123"}
@@ -67,4 +71,42 @@ func TestAllowedByPolicy_GroupMention(t *testing.T) {
 	if c.allowedByPolicy("message", "C123", "channel", "<@U1> hi") {
 		t.Fatal("expected message to be denied in mention policy (dedup via app_mention)")
 	}
+}
+
+func TestSlackThreadMeta(t *testing.T) {
+	t.Run("from_delivery", func(t *testing.T) {
+		threadTS, direct := slackThreadMeta(bus.OutboundMessage{
+			Delivery: bus.Delivery{
+				ThreadID: "1740000000.100",
+			},
+		})
+		if threadTS != "1740000000.100" || direct {
+			t.Fatalf("unexpected thread meta: thread_ts=%q direct=%v", threadTS, direct)
+		}
+	})
+
+	t.Run("fallback_reply_to", func(t *testing.T) {
+		threadTS, direct := slackThreadMeta(bus.OutboundMessage{
+			ReplyTo: "1740000000.200",
+		})
+		if threadTS != "1740000000.200" || direct {
+			t.Fatalf("unexpected thread meta: thread_ts=%q direct=%v", threadTS, direct)
+		}
+	})
+}
+
+func TestBuildSlackDelivery(t *testing.T) {
+	t.Run("thread_fallback_to_ts", func(t *testing.T) {
+		d := buildSlackDelivery("1740000000.300", "", "channel")
+		if d.MessageID != "1740000000.300" || d.ThreadID != "1740000000.300" || d.IsDirect {
+			t.Fatalf("unexpected delivery: %+v", d)
+		}
+	})
+
+	t.Run("direct_chat", func(t *testing.T) {
+		d := buildSlackDelivery("1740000000.400", "1740000000.401", "im")
+		if !d.IsDirect || d.ThreadID != "1740000000.401" {
+			t.Fatalf("unexpected delivery: %+v", d)
+		}
+	})
 }
