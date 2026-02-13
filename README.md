@@ -199,7 +199,7 @@ clawlet gateway
 </details>
 
 <details>
-<summary><b>WhatsApp (whatsmeow)</b></summary>
+<summary><b>WhatsApp</b></summary>
 
 Uses **whatsmeow** (WhatsApp Web Multi-Device). No Meta webhook/public endpoint is required.
 
