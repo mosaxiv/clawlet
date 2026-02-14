@@ -10,8 +10,8 @@
 ## Build, Test, and Development Commands
 
 ```bash
-# Build a local binary
-go build -o clawlet ./cmd/clawlet
+# Build a local binary (optimized for size)
+go build -ldflags="-s -w" -o clawlet ./cmd/clawlet
 
 # Run from source
 go run ./cmd/clawlet --help

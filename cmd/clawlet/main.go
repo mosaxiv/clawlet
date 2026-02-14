@@ -21,6 +21,7 @@ func main() {
 			cmdGateway(),
 			cmdChannels(),
 			cmdCron(),
+			cmdAuth(),
 		},
 	}
 

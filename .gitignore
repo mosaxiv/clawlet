@@ -1,3 +1,11 @@
 .tmp
 .idea
 dist/
+clawlet
+clawlet-*
+opencode-gemini-auth/
+vendor/
+*.exe
+*.test
+*.bin
+.agent/

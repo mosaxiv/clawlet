@@ -350,6 +350,8 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 				cfg.LLM.BaseURL = DefaultAnthropicBaseURL
 			case "gemini":
 				cfg.LLM.BaseURL = DefaultGeminiBaseURL
+			case "antigravity":
+				cfg.LLM.BaseURL = "https://cloudcode-pa.googleapis.com"
 			case "ollama":
 				cfg.LLM.BaseURL = DefaultOllamaBaseURL
 			default:
@@ -374,6 +376,10 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 	}
 
 	provider = p
+	// If the user explicitly set antigravity provider, and the model is gemini, use antigravity.
+	if providerHint == "antigravity" && provider == "gemini" {
+		provider = "antigravity"
+	}
 	cfg.LLM.Provider = provider
 	cfg.LLM.Model = model
 
@@ -387,6 +393,8 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 			cfg.LLM.BaseURL = DefaultAnthropicBaseURL
 		case "gemini":
 			cfg.LLM.BaseURL = DefaultGeminiBaseURL
+		case "antigravity":
+			cfg.LLM.BaseURL = "https://cloudcode-pa.googleapis.com"
 		case "ollama":
 			cfg.LLM.BaseURL = DefaultOllamaBaseURL
 		}
@@ -424,6 +432,9 @@ func parseRoutedModel(s string) (provider string, model string) {
 	}
 	if after, ok := strings.CutPrefix(s, "gemini/"); ok {
 		return "gemini", after
+	}
+	if after, ok := strings.CutPrefix(s, "antigravity/"); ok {
+		return "antigravity", after
 	}
 	if after, ok := strings.CutPrefix(s, "ollama/"); ok {
 		return "ollama", after
