@@ -35,6 +35,35 @@ clawlet status
 clawlet agent -m "What is 2+2?"
 ```
 
+## Docker
+
+Run clawlet using Docker or Docker Compose instead of installing locally.
+
+### Dockerfile
+
+The Dockerfile uses a multi-stage build: it compiles the Go application with CGO enabled (for sqlite-vec), then runs it in a minimal Alpine container. The container automatically runs `clawlet onboard` and `clawlet status` on first build, then starts the gateway.
+
+### Docker Compose
+
+```bash
+docker-compose up --build
+```
+
+The gateway will be available at `http://localhost:18790`.
+
+### Plain Docker
+
+```bash
+# Build the image
+docker build -t clawlet .
+
+# Run the gateway
+docker run -e OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
+  -p 18790:18790 \
+  -v "$PWD/clawlet.config.json:/root/.clawlet/config.json" \
+  clawlet
+```
+
 ## Configuration (`~/.clawlet/config.json`)
 
 Config file: `~/.clawlet/config.json`
