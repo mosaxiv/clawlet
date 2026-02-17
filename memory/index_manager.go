@@ -1055,9 +1055,13 @@ func (m *IndexManager) listMemoryFilesLocked() ([]memoryFileEntry, error) {
 
 func resolveSearchConfig(cfg *config.Config, workspace string) (resolvedSearchConfig, error) {
 	raw := cfg.Agents.Defaults.MemorySearch
+	provider := strings.ToLower(strings.TrimSpace(raw.Provider))
+	if provider == "" {
+		provider = "openai"
+	}
 	out := resolvedSearchConfig{
 		enabled:            raw.EnabledValue(),
-		provider:           normalizeMemorySearchProvider(raw.Provider),
+		provider:           provider,
 		model:              strings.TrimSpace(raw.Model),
 		baseURL:            strings.TrimSpace(raw.Remote.BaseURL),
 		apiKey:             strings.TrimSpace(raw.Remote.APIKey),
@@ -1098,12 +1102,7 @@ func resolveSearchConfig(cfg *config.Config, workspace string) (resolvedSearchCo
 		out.baseURL = config.DefaultOpenAIBaseURL
 	}
 	if out.apiKey == "" {
-		if looksLikeOpenRouterBaseURL(out.baseURL) {
-			out.apiKey = strings.TrimSpace(cfg.Env["OPENROUTER_API_KEY"])
-		}
-		if out.apiKey == "" {
-			out.apiKey = strings.TrimSpace(cfg.Env["OPENAI_API_KEY"])
-		}
+		out.apiKey = strings.TrimSpace(cfg.Env["OPENAI_API_KEY"])
 		if out.apiKey == "" {
 			out.apiKey = strings.TrimSpace(cfg.Env["OPENROUTER_API_KEY"])
 		}
@@ -1144,19 +1143,6 @@ func resolveSearchConfig(cfg *config.Config, workspace string) (resolvedSearchCo
 		out.candidateMul = config.DefaultMemorySearchCandidateMultiplier
 	}
 	return out, nil
-}
-
-func looksLikeOpenRouterBaseURL(raw string) bool {
-	s := strings.ToLower(strings.TrimSpace(raw))
-	return strings.Contains(s, "openrouter.ai")
-}
-
-func normalizeMemorySearchProvider(raw string) string {
-	s := strings.ToLower(strings.TrimSpace(raw))
-	if s == "" {
-		return "openai"
-	}
-	return s
 }
 
 func (p *openAIEmbeddingProvider) EmbedBatch(ctx context.Context, texts []string) ([][]float64, error) {

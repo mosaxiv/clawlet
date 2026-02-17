@@ -110,7 +110,7 @@ func TestResolveSearchConfig_OpenRouterProviderUnsupported(t *testing.T) {
 	}
 }
 
-func TestResolveSearchConfig_OpenRouterBaseURLUsesOpenRouterKey(t *testing.T) {
+func TestResolveSearchConfig_FallsBackToOpenRouterKey(t *testing.T) {
 	cfg := config.Default()
 	enabled := true
 	cfg.Agents.Defaults.MemorySearch.Enabled = &enabled
