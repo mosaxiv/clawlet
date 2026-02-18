@@ -208,7 +208,10 @@ func (c *Channel) handleIncomingMessage(evt *events.Message) {
 	}
 
 	content := whatsappMessageContent(evt.Message)
-	attachments := whatsappInboundAttachments(evt.Message)
+	c.mu.Lock()
+	wa := c.wa
+	c.mu.Unlock()
+	attachments := whatsappInboundAttachments(context.Background(), wa, evt.Message, config.DefaultMediaMaxFileBytes)
 	if content == "" && len(attachments) == 0 {
 		return
 	}
@@ -490,45 +493,56 @@ func whatsappReplyToID(msg *waE2E.Message) string {
 	return ""
 }
 
-func whatsappInboundAttachments(msg *waE2E.Message) []bus.Attachment {
+func whatsappInboundAttachments(ctx context.Context, wa *whatsmeow.Client, msg *waE2E.Message, maxBytes int64) []bus.Attachment {
 	if msg == nil {
 		return nil
+	}
+	if maxBytes <= 0 {
+		maxBytes = config.DefaultMediaMaxFileBytes
 	}
 	out := make([]bus.Attachment, 0, 4)
 	if image := msg.GetImageMessage(); image != nil {
 		mimeType := strings.TrimSpace(image.GetMimetype())
+		data := whatsappDownloadAttachment(ctx, wa, image, maxBytes)
 		out = append(out, bus.Attachment{
 			Name:      "image",
 			MIMEType:  mimeType,
 			Kind:      bus.InferAttachmentKind(mimeType),
 			SizeBytes: int64(image.GetFileLength()),
+			Data:      data,
 		})
 	}
 	if video := msg.GetVideoMessage(); video != nil {
 		mimeType := strings.TrimSpace(video.GetMimetype())
+		data := whatsappDownloadAttachment(ctx, wa, video, maxBytes)
 		out = append(out, bus.Attachment{
 			Name:      "video",
 			MIMEType:  mimeType,
 			Kind:      bus.InferAttachmentKind(mimeType),
 			SizeBytes: int64(video.GetFileLength()),
+			Data:      data,
 		})
 	}
 	if doc := msg.GetDocumentMessage(); doc != nil {
 		mimeType := strings.TrimSpace(doc.GetMimetype())
+		data := whatsappDownloadAttachment(ctx, wa, doc, maxBytes)
 		out = append(out, bus.Attachment{
 			Name:      strings.TrimSpace(doc.GetFileName()),
 			MIMEType:  mimeType,
 			Kind:      bus.InferAttachmentKind(mimeType),
 			SizeBytes: int64(doc.GetFileLength()),
+			Data:      data,
 		})
 	}
 	if audio := msg.GetAudioMessage(); audio != nil {
 		mimeType := strings.TrimSpace(audio.GetMimetype())
+		data := whatsappDownloadAttachment(ctx, wa, audio, maxBytes)
 		out = append(out, bus.Attachment{
 			Name:      "voice",
 			MIMEType:  mimeType,
 			Kind:      bus.InferAttachmentKind(mimeType),
 			SizeBytes: int64(audio.GetFileLength()),
+			Data:      data,
 		})
 	}
 	if len(out) == 0 {
@@ -540,6 +554,23 @@ func whatsappInboundAttachments(msg *waE2E.Message) []bus.Attachment {
 		}
 	}
 	return out
+}
+
+func whatsappDownloadAttachment(ctx context.Context, wa *whatsmeow.Client, media whatsmeow.DownloadableMessage, maxBytes int64) []byte {
+	if wa == nil || media == nil {
+		return nil
+	}
+	dlCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	data, err := wa.Download(dlCtx, media)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	if maxBytes > 0 && int64(len(data)) > maxBytes {
+		return nil
+	}
+	return data
 }
 
 func appendUniqueTrimmed(parts []string, v string) []string {

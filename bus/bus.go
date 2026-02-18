@@ -20,6 +20,7 @@ type Attachment struct {
 	SizeBytes int64
 	URL       string
 	LocalPath string
+	Data      []byte
 	Headers   map[string]string
 }
 

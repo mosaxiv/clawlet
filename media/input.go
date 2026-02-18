@@ -232,6 +232,16 @@ func readAttachmentBytes(ctx context.Context, att bus.Attachment, maxBytes int64
 	if timeoutSec <= 0 {
 		timeoutSec = config.DefaultMediaDownloadTimeoutSec
 	}
+	if len(att.Data) > 0 {
+		if int64(len(att.Data)) > maxBytes {
+			return nil, "", fmt.Errorf("attachment too large: %d > %d", len(att.Data), maxBytes)
+		}
+		mimeType := strings.TrimSpace(att.MIMEType)
+		if mimeType == "" {
+			mimeType = http.DetectContentType(att.Data)
+		}
+		return att.Data, mimeType, nil
+	}
 	if att.LocalPath != "" {
 		st, err := os.Stat(att.LocalPath)
 		if err != nil {

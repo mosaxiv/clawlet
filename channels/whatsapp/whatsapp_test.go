@@ -129,7 +129,7 @@ func TestWhatsAppInboundAttachments(t *testing.T) {
 			FileLength: new(uint64),
 		},
 	}
-	got := whatsappInboundAttachments(msg)
+	got := whatsappInboundAttachments(context.Background(), nil, msg, 1024*1024)
 	if len(got) != 3 {
 		t.Fatalf("attachments=%d", len(got))
 	}
