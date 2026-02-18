@@ -171,7 +171,7 @@ func TestDecodeCodexAccountID_FromNestedClaim(t *testing.T) {
 }
 
 func TestParseDeviceCodeResponse(t *testing.T) {
-	body := []byte(`{"device_auth_id":"dev-1","user_code":"ABC-DEF","interval":"7"}`)
+	body := []byte(`{"device_auth_id":"dev-1","user_code":"ABC-DEF","interval":"7","expires_in":"1800"}`)
 	parsed, err := parseDeviceCodeResponse(body)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -184,6 +184,9 @@ func TestParseDeviceCodeResponse(t *testing.T) {
 	}
 	if parsed.IntervalSec != 7 {
 		t.Fatalf("interval=%d", parsed.IntervalSec)
+	}
+	if parsed.ExpiresInSec != 1800 {
+		t.Fatalf("expires_in=%d", parsed.ExpiresInSec)
 	}
 }
 
@@ -211,6 +214,12 @@ func TestParseTokenPayload_RequiresRefreshTokenOnAuthCodeFlow(t *testing.T) {
 func TestCodexDeviceAuthIsPending(t *testing.T) {
 	if !codexDeviceAuthIsPending([]byte(`{"error":"authorization_pending"}`)) {
 		t.Fatal("expected pending=true")
+	}
+	if !codexDeviceAuthIsPending([]byte(`{"error":{"message":"Device authorization is unknown. Please try again.","type":"invalid_request_error","code":"deviceauth_authorization_unknown"}}`)) {
+		t.Fatal("expected pending=true for nested deviceauth_authorization_unknown")
+	}
+	if !codexDeviceAuthIsPending([]byte(`{"error":{"message":"Device authorization is unknown. Please try again."}}`)) {
+		t.Fatal("expected pending=true for unknown message only")
 	}
 	if codexDeviceAuthIsPending([]byte(`{"error":"access_denied"}`)) {
 		t.Fatal("expected pending=false")

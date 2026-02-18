@@ -59,6 +59,7 @@ type codexDeviceCodeResponse struct {
 	DeviceAuthID string
 	UserCode     string
 	IntervalSec  int
+	ExpiresInSec int
 }
 
 var errCodexDeviceAuthPending = errors.New("device authorization pending")
@@ -240,6 +241,7 @@ func parseDeviceCodeResponse(body []byte) (codexDeviceCodeResponse, error) {
 		DeviceAuthID string          `json:"device_auth_id"`
 		UserCode     string          `json:"user_code"`
 		Interval     json.RawMessage `json:"interval"`
+		ExpiresIn    json.RawMessage `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return codexDeviceCodeResponse{}, err
@@ -251,6 +253,14 @@ func parseDeviceCodeResponse(body []byte) (codexDeviceCodeResponse, error) {
 	if intervalSec < 1 {
 		intervalSec = 5
 	}
+	expiresInSec, err := parseFlexibleInt(raw.ExpiresIn)
+	if err != nil {
+		return codexDeviceCodeResponse{}, err
+	}
+	// Fallback to a practical timeout when server doesn't return expires_in.
+	if expiresInSec < 60 {
+		expiresInSec = 30 * 60
+	}
 	if strings.TrimSpace(raw.DeviceAuthID) == "" || strings.TrimSpace(raw.UserCode) == "" {
 		return codexDeviceCodeResponse{}, fmt.Errorf("device code response missing fields")
 	}
@@ -258,6 +268,7 @@ func parseDeviceCodeResponse(body []byte) (codexDeviceCodeResponse, error) {
 		DeviceAuthID: raw.DeviceAuthID,
 		UserCode:     raw.UserCode,
 		IntervalSec:  intervalSec,
+		ExpiresInSec: expiresInSec,
 	}, nil
 }
 
@@ -281,7 +292,7 @@ func parseFlexibleInt(raw json.RawMessage) (int, error) {
 }
 
 func pollCodexDeviceCode(ctx context.Context, device codexDeviceCodeResponse) (codexStoredToken, error) {
-	deadline := time.NewTimer(15 * time.Minute)
+	deadline := time.NewTimer(time.Duration(device.ExpiresInSec) * time.Second)
 	defer deadline.Stop()
 	ticker := time.NewTicker(time.Duration(device.IntervalSec) * time.Second)
 	defer ticker.Stop()
@@ -291,7 +302,7 @@ func pollCodexDeviceCode(ctx context.Context, device codexDeviceCodeResponse) (c
 		case <-ctx.Done():
 			return codexStoredToken{}, ctx.Err()
 		case <-deadline.C:
-			return codexStoredToken{}, fmt.Errorf("device code authentication timed out after 15 minutes")
+			return codexStoredToken{}, fmt.Errorf("device code authentication timed out")
 		case <-ticker.C:
 			tok, done, err := tryPollCodexDeviceCode(ctx, device.DeviceAuthID, device.UserCode)
 			if err != nil {
@@ -358,19 +369,43 @@ func codexDeviceAuthIsPending(body []byte) bool {
 	if raw == "" {
 		return true
 	}
-	if strings.Contains(raw, "pending") || strings.Contains(raw, "authorization_pending") || strings.Contains(raw, "slow_down") {
+	if strings.Contains(raw, "pending") ||
+		strings.Contains(raw, "authorization_pending") ||
+		strings.Contains(raw, "slow_down") ||
+		strings.Contains(raw, "deviceauth_authorization_unknown") ||
+		strings.Contains(raw, "device authorization is unknown") {
 		return true
 	}
 	var payload struct {
-		Error            string `json:"error"`
-		ErrorCode        string `json:"error_code"`
-		ErrorDescription string `json:"error_description"`
-		Message          string `json:"message"`
+		ErrorCode        string          `json:"error_code"`
+		ErrorDescription string          `json:"error_description"`
+		Message          string          `json:"message"`
+		ErrorRaw         json.RawMessage `json:"error"`
 	}
 	if err := json.Unmarshal(body, &payload); err == nil {
-		for _, v := range []string{payload.Error, payload.ErrorCode, payload.ErrorDescription, payload.Message} {
+		var errorText string
+		var errorObj struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+		}
+		_ = json.Unmarshal(payload.ErrorRaw, &errorText)
+		_ = json.Unmarshal(payload.ErrorRaw, &errorObj)
+		for _, v := range []string{
+			errorText,
+			payload.ErrorCode,
+			payload.ErrorDescription,
+			payload.Message,
+			errorObj.Message,
+			errorObj.Type,
+			errorObj.Code,
+		} {
 			l := strings.ToLower(strings.TrimSpace(v))
-			if strings.Contains(l, "pending") || strings.Contains(l, "authorization_pending") || strings.Contains(l, "slow_down") {
+			if strings.Contains(l, "pending") ||
+				strings.Contains(l, "authorization_pending") ||
+				strings.Contains(l, "slow_down") ||
+				strings.Contains(l, "deviceauth_authorization_unknown") ||
+				strings.Contains(l, "device authorization is unknown") {
 				return true
 			}
 		}
