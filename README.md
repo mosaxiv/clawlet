@@ -157,6 +157,10 @@ When disabled (default):
 - Normal chat behavior is otherwise unchanged.
 
 
+## Tools
+
+Tool-related defaults and media input behavior:
+
 ### Safety defaults
 
 clawlet is conservative by default:
@@ -171,9 +175,7 @@ Inbound channel messages can include attachments. clawlet can:
 - transcribe audio using the configured provider,
 - and inline text-like file attachments into the user context.
 
-Configure under `tools.media`:
-
-The values below are the current default values.
+Configure under `tools.media` (the values below are the current default values):
 
 ```json
 {
