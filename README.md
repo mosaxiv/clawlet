@@ -172,7 +172,7 @@ clawlet はデフォルトで「公開しない」「外に出さない」設定
 | --- | --- | --- |
 | Gateway not publicly exposed | ✅ | Default bind is localhost only. Public bind is rejected unless `gateway.allowPublicBind=true` is explicitly set. |
 | Filesystem scoped (no `/`) | ✅ | File tools block root path, path traversal, encoded traversal, symlink escapes, and sensitive state paths. |
-| Exec tool hardened | ✅ | `exec` blocks unsafe shell constructs (command chaining, unsafe expansions, redirection/`tee`, dangerous patterns), blocks sensitive paths, and passes only allowlisted environment variables to subprocesses. |
+| Exec tool dangerous-command guard | ✅ | `exec` blocks unsafe shell constructs (command chaining, unsafe expansions, redirection/`tee`, dangerous patterns), blocks sensitive paths, and passes only allowlisted environment variables to subprocesses. |
 | Access via tunnel/proxy only (when externally exposed) | ✅ (operational) | If you need external access, keep direct bind local and expose only through a trusted tunnel/reverse proxy. |
 
 ### Sensitive State Paths
@@ -181,7 +181,9 @@ File/exec safety guards block these paths:
 - `{config_dir}/auth/**`
 - `{config_dir}/whatsapp-auth/**`
 
-### Recommended Config (Hardened)
+### Default Security Config (Current Defaults)
+
+If omitted, clawlet uses these values by default.
 
 ```json
 {
