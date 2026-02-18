@@ -48,6 +48,8 @@ func (c *Client) Chat(ctx context.Context, messages []Message, tools []ToolDefin
 		return c.chatAnthropic(ctx, messages, tools)
 	case "gemini":
 		return c.chatGemini(ctx, messages, tools)
+	case "openai-codex":
+		return c.chatOpenAICodex(ctx, messages, tools)
 	default:
 		return nil, fmt.Errorf("unsupported llm provider: %s", strings.TrimSpace(c.Provider))
 	}

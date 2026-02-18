@@ -44,6 +44,7 @@ Config file: `~/.clawlet/config.json`
 clawlet currently supports these LLM providers:
 
 - **OpenAI** (`openai/<model>`, API key: `env.OPENAI_API_KEY`)
+- **OpenAI Codex (OAuth)** (`openai-codex/<model>`, no API key; login: `clawlet provider login openai-codex`)
 - **OpenRouter** (`openrouter/<provider>/<model>`, API key: `env.OPENROUTER_API_KEY`)
 - **Anthropic** (`anthropic/<model>`, API key: `env.ANTHROPIC_API_KEY`)
 - **Gemini** (`gemini/<model>`, API key: `env.GEMINI_API_KEY` or `env.GOOGLE_API_KEY`)
@@ -89,7 +90,21 @@ Minimal config (Local via vLLM using the same `ollama/` route):
 }
 ```
 
-clawlet will fill in sensible defaults for missing sections (tools, gateway, cron, heartbeat, channels).
+OpenAI Codex (OAuth):
+
+```bash
+# one-time login
+clawlet provider login openai-codex
+
+# headless environment (SSH / container)
+clawlet provider login openai-codex --device-code
+```
+
+```json
+{
+  "agents": { "defaults": { "model": "openai-codex/gpt-5.1-codex" } }
+}
+```
 
 ### Option: Memory search setup
 

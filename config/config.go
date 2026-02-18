@@ -259,6 +259,7 @@ const (
 	DefaultMemorySearchHybridTextWeight    = 0.3
 	DefaultMemorySearchCandidateMultiplier = 4
 	DefaultOpenAIBaseURL                   = "https://api.openai.com/v1"
+	DefaultOpenAICodexBaseURL              = "https://chatgpt.com/backend-api"
 	DefaultOpenRouterBaseURL               = "https://openrouter.ai/api/v1"
 	DefaultAnthropicBaseURL                = "https://api.anthropic.com"
 	DefaultGeminiBaseURL                   = "https://generativelanguage.googleapis.com/v1beta"
@@ -541,6 +542,8 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 				cfg.LLM.BaseURL = DefaultGeminiBaseURL
 			case "ollama":
 				cfg.LLM.BaseURL = DefaultOllamaBaseURL
+			case "openai-codex":
+				cfg.LLM.BaseURL = DefaultOpenAICodexBaseURL
 			default:
 				cfg.LLM.BaseURL = DefaultOpenAIBaseURL
 			}
@@ -570,6 +573,8 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 		switch provider {
 		case "openai":
 			cfg.LLM.BaseURL = DefaultOpenAIBaseURL
+		case "openai-codex":
+			cfg.LLM.BaseURL = DefaultOpenAICodexBaseURL
 		case "openrouter":
 			cfg.LLM.BaseURL = DefaultOpenRouterBaseURL
 		case "anthropic":
@@ -602,6 +607,9 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 
 func parseRoutedModel(s string) (provider string, model string) {
 	s = strings.TrimSpace(s)
+	if after, ok := strings.CutPrefix(s, "openai-codex/"); ok {
+		return "openai-codex", after
+	}
 	if after, ok := strings.CutPrefix(s, "openai/"); ok {
 		return "openai", after
 	}

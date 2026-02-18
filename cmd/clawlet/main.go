@@ -19,6 +19,7 @@ func main() {
 			cmdStatus(),
 			cmdAgent(),
 			cmdGateway(),
+			cmdProvider(),
 			cmdChannels(),
 			cmdCron(),
 		},

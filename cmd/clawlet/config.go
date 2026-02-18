@@ -120,7 +120,7 @@ func resolveWorkspace(flagValue string) (string, error) {
 
 func providerNeedsAPIKey(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "ollama":
+	case "ollama", "openai-codex":
 		return false
 	default:
 		return true

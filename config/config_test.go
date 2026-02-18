@@ -186,6 +186,27 @@ func TestApplyLLMRouting_OllamaLocal(t *testing.T) {
 	}
 }
 
+func TestApplyLLMRouting_OpenAICodex(t *testing.T) {
+	cfg := Default()
+	cfg.Agents.Defaults.Model = "openai-codex/gpt-5.1-codex"
+	cfg.LLM.BaseURL = ""
+	cfg.LLM.APIKey = ""
+
+	provider, _ := cfg.ApplyLLMRouting()
+	if provider != "openai-codex" {
+		t.Fatalf("provider=%q", provider)
+	}
+	if cfg.LLM.BaseURL != DefaultOpenAICodexBaseURL {
+		t.Fatalf("baseURL=%q", cfg.LLM.BaseURL)
+	}
+	if cfg.LLM.APIKey != "" {
+		t.Fatalf("apiKey=%q", cfg.LLM.APIKey)
+	}
+	if cfg.LLM.Model != "gpt-5.1-codex" {
+		t.Fatalf("model=%q", cfg.LLM.Model)
+	}
+}
+
 func TestApplyLLMRouting_LocalAlias(t *testing.T) {
 	cfg := Default()
 	cfg.Agents.Defaults.Model = "local/qwen2.5:14b"
