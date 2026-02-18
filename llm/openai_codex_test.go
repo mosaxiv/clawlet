@@ -159,12 +159,17 @@ func TestLoadCodexOAuthToken_FromStoredToken(t *testing.T) {
 }
 
 func TestDecodeCodexAccountID_FromNestedClaim(t *testing.T) {
-	payload := map[string]any{
-		"https://api.openai.com/auth": map[string]any{
-			"chatgpt_account_id": "acct_nested",
-		},
+	payload := struct {
+		Auth struct {
+			ChatGPTAccountID string `json:"chatgpt_account_id"`
+		} `json:"https://api.openai.com/auth"`
+	}{}
+	payload.Auth.ChatGPTAccountID = "acct_nested"
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
 	}
-	token := "x." + base64.RawURLEncoding.EncodeToString(mustJSON(payload)) + ".y"
+	token := "x." + base64.RawURLEncoding.EncodeToString(raw) + ".y"
 	if got := decodeCodexAccountID(token); got != "acct_nested" {
 		t.Fatalf("account_id=%q", got)
 	}
@@ -224,12 +229,4 @@ func TestCodexDeviceAuthIsPending(t *testing.T) {
 	if codexDeviceAuthIsPending([]byte(`{"error":"access_denied"}`)) {
 		t.Fatal("expected pending=false")
 	}
-}
-
-func mustJSON(v any) []byte {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
 }
