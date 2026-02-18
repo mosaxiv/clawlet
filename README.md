@@ -159,8 +159,6 @@ When disabled (default):
 
 ## Tools
 
-Tool-related defaults and media input behavior:
-
 ### Safety defaults
 
 clawlet is conservative by default:
