@@ -5,10 +5,32 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 )
+
+var safeExecEnvVars = []string{
+	"PATH",
+	"HOME",
+	"TERM",
+	"LANG",
+	"LC_ALL",
+	"LC_CTYPE",
+	"USER",
+	"SHELL",
+	"TMPDIR",
+}
+
+func applySafeExecEnv(cmd *exec.Cmd) {
+	cmd.Env = []string{}
+	for _, key := range safeExecEnvVars {
+		if val, ok := os.LookupEnv(key); ok {
+			cmd.Env = append(cmd.Env, key+"="+val)
+		}
+	}
+}
 
 func (r *Registry) exec(ctx context.Context, command string) (string, error) {
 	if strings.TrimSpace(command) == "" {
@@ -27,6 +49,7 @@ func (r *Registry) exec(ctx context.Context, command string) (string, error) {
 	// Use sh -lc for portability (pipes, redirects, etc.)
 	cmd := exec.CommandContext(cctx, "sh", "-lc", command)
 	cmd.Dir = r.WorkspaceDir
+	applySafeExecEnv(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

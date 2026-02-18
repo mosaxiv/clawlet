@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mosaxiv/clawlet/paths"
 )
 
-var sensitivePathSuffixes = []string{
-	filepath.Join(".clawlet", "auth"),
-	filepath.Join(".clawlet", "whatsapp-auth"),
+var sensitiveDirNames = []string{
+	"auth",
+	"whatsapp-auth",
 }
 
 func hasParentTraversal(path string) bool {
@@ -34,13 +36,17 @@ func isSameOrChildPath(path string, root string) bool {
 }
 
 func blockedSensitivePaths() []string {
-	home, err := os.UserHomeDir()
-	if err != nil || strings.TrimSpace(home) == "" {
-		return nil
+	cfgDir, err := paths.ConfigDir()
+	if err != nil || strings.TrimSpace(cfgDir) == "" {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil || strings.TrimSpace(home) == "" {
+			return nil
+		}
+		cfgDir = filepath.Join(home, ".clawlet")
 	}
-	out := make([]string, 0, len(sensitivePathSuffixes))
-	for _, suffix := range sensitivePathSuffixes {
-		out = append(out, filepath.Clean(filepath.Join(home, suffix)))
+	out := make([]string, 0, len(sensitiveDirNames))
+	for _, dirName := range sensitiveDirNames {
+		out = append(out, filepath.Clean(filepath.Join(cfgDir, dirName)))
 	}
 	return out
 }
