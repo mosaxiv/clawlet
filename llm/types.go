@@ -7,9 +7,23 @@ import "encoding/json"
 type Message struct {
 	Role       string            `json:"role"`
 	Content    string            `json:"content,omitempty"`
+	Parts      []ContentPart     `json:"-"`
 	ToolCalls  []ToolCallPayload `json:"tool_calls,omitempty"`
 	ToolCallID string            `json:"tool_call_id,omitempty"`
 	Name       string            `json:"name,omitempty"`
+}
+
+const (
+	ContentPartTypeText  = "text"
+	ContentPartTypeImage = "image"
+)
+
+type ContentPart struct {
+	Type     string
+	Text     string
+	MIMEType string
+	Data     string
+	Name     string
 }
 
 // ToolCallPayload is used inside assistant messages to request tool execution.

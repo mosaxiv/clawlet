@@ -127,8 +127,14 @@ type geminiContent struct {
 
 type geminiPart struct {
 	Text             string                  `json:"text,omitempty"`
+	InlineData       *geminiInlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
+}
+
+type geminiInlineData struct {
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type geminiFunctionCall struct {
@@ -182,17 +188,18 @@ func toGeminiMessages(messages []Message) ([]geminiContent, string) {
 				systemParts = append(systemParts, m.Content)
 			}
 		case "user":
-			if strings.TrimSpace(m.Content) == "" {
+			parts := toGeminiInputParts(m)
+			if len(parts) == 0 {
 				continue
 			}
 			contents = append(contents, geminiContent{
 				Role:  "user",
-				Parts: []geminiPart{{Text: m.Content}},
+				Parts: parts,
 			})
 		case "assistant":
-			parts := make([]geminiPart, 0, 1+len(m.ToolCalls))
-			if strings.TrimSpace(m.Content) != "" {
-				parts = append(parts, geminiPart{Text: m.Content})
+			parts := toGeminiInputParts(m)
+			if len(parts) == 0 {
+				parts = make([]geminiPart, 0, len(m.ToolCalls))
 			}
 			for _, tc := range m.ToolCalls {
 				parts = append(parts, geminiPart{
@@ -226,6 +233,48 @@ func toGeminiMessages(messages []Message) ([]geminiContent, string) {
 	}
 
 	return contents, strings.Join(systemParts, "\n\n")
+}
+
+func toGeminiInputParts(m Message) []geminiPart {
+	if len(m.Parts) == 0 {
+		if strings.TrimSpace(m.Content) == "" {
+			return nil
+		}
+		return []geminiPart{{Text: m.Content}}
+	}
+
+	out := make([]geminiPart, 0, len(m.Parts)+1)
+	if strings.TrimSpace(m.Content) != "" {
+		out = append(out, geminiPart{Text: m.Content})
+	}
+	for _, p := range m.Parts {
+		switch p.Type {
+		case ContentPartTypeText:
+			if strings.TrimSpace(p.Text) == "" {
+				continue
+			}
+			out = append(out, geminiPart{Text: p.Text})
+		case ContentPartTypeImage:
+			mimeType := strings.TrimSpace(p.MIMEType)
+			if mimeType == "" {
+				mimeType = "image/jpeg"
+			}
+			data := strings.TrimSpace(p.Data)
+			if data == "" {
+				continue
+			}
+			out = append(out, geminiPart{
+				InlineData: &geminiInlineData{
+					MimeType: mimeType,
+					Data:     data,
+				},
+			})
+		}
+	}
+	if len(out) == 0 && strings.TrimSpace(m.Content) != "" {
+		return []geminiPart{{Text: m.Content}}
+	}
+	return out
 }
 
 func parseToolResponseValue(s string) any {

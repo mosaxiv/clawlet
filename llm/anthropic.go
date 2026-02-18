@@ -118,13 +118,20 @@ type anthropicMsg struct {
 }
 
 type anthropicContentPart struct {
-	Type      string          `json:"type"`
-	Text      string          `json:"text,omitempty"`
-	ID        string          `json:"id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`
-	ToolUseID string          `json:"tool_use_id,omitempty"`
-	Content   string          `json:"content,omitempty"`
+	Type      string           `json:"type"`
+	Text      string           `json:"text,omitempty"`
+	Source    *anthropicSource `json:"source,omitempty"`
+	ID        string           `json:"id,omitempty"`
+	Name      string           `json:"name,omitempty"`
+	Input     json.RawMessage  `json:"input,omitempty"`
+	ToolUseID string           `json:"tool_use_id,omitempty"`
+	Content   string           `json:"content,omitempty"`
+}
+
+type anthropicSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 type anthropicTool struct {
@@ -181,13 +188,7 @@ func toAnthropicMessages(messages []Message) ([]anthropicMsg, string) {
 		case "user", "assistant":
 			flushToolResults()
 
-			parts := make([]anthropicContentPart, 0, 1+len(m.ToolCalls))
-			if strings.TrimSpace(m.Content) != "" {
-				parts = append(parts, anthropicContentPart{
-					Type: "text",
-					Text: m.Content,
-				})
-			}
+			parts := toAnthropicInputParts(m)
 			if role == "assistant" {
 				for i, tc := range m.ToolCalls {
 					toolID := strings.TrimSpace(tc.ID)
@@ -212,6 +213,62 @@ func toAnthropicMessages(messages []Message) ([]anthropicMsg, string) {
 	}
 	flushToolResults()
 	return out, strings.Join(systemParts, "\n\n")
+}
+
+func toAnthropicInputParts(m Message) []anthropicContentPart {
+	if len(m.Parts) == 0 {
+		if strings.TrimSpace(m.Content) == "" {
+			return nil
+		}
+		return []anthropicContentPart{{
+			Type: "text",
+			Text: m.Content,
+		}}
+	}
+
+	out := make([]anthropicContentPart, 0, len(m.Parts)+1)
+	if strings.TrimSpace(m.Content) != "" {
+		out = append(out, anthropicContentPart{
+			Type: "text",
+			Text: m.Content,
+		})
+	}
+	for _, p := range m.Parts {
+		switch p.Type {
+		case ContentPartTypeText:
+			if strings.TrimSpace(p.Text) == "" {
+				continue
+			}
+			out = append(out, anthropicContentPart{
+				Type: "text",
+				Text: p.Text,
+			})
+		case ContentPartTypeImage:
+			mimeType := strings.TrimSpace(p.MIMEType)
+			if mimeType == "" {
+				mimeType = "image/jpeg"
+			}
+			data := strings.TrimSpace(p.Data)
+			if data == "" {
+				continue
+			}
+			out = append(out, anthropicContentPart{
+				Type: "image",
+				Source: &anthropicSource{
+					Type:      "base64",
+					MediaType: mimeType,
+					Data:      data,
+				},
+			})
+		}
+	}
+	if len(out) == 0 && strings.TrimSpace(m.Content) != "" {
+		return []anthropicContentPart{{
+			Type: "text",
+			Text: m.Content,
+		}}
+	}
+	return out
 }
 
 func anthropicMessagesEndpoint(baseURL string) string {

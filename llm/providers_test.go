@@ -1,6 +1,8 @@
 package llm
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestAnthropicMessagesEndpoint(t *testing.T) {
 	if got := anthropicMessagesEndpoint("https://api.anthropic.com"); got != "https://api.anthropic.com/v1/messages" {
@@ -101,5 +103,89 @@ func TestToGeminiMessages_ToolMapping(t *testing.T) {
 	}
 	if converted[2].Parts[0].FunctionResponse == nil {
 		t.Fatalf("functionResponse=nil")
+	}
+}
+
+func TestToOpenAIMessages_ImagePart(t *testing.T) {
+	msgs := []Message{
+		{
+			Role: "user",
+			Parts: []ContentPart{
+				{Type: ContentPartTypeText, Text: "what is in this image?"},
+				{Type: ContentPartTypeImage, MIMEType: "image/png", Data: "ZmFrZQ=="},
+			},
+		},
+	}
+
+	converted := toOpenAIMessages(msgs)
+	if len(converted) != 1 {
+		t.Fatalf("messages=%d", len(converted))
+	}
+	parts, ok := converted[0].Content.([]openAIContentPart)
+	if !ok {
+		t.Fatalf("content type=%T", converted[0].Content)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("parts=%d", len(parts))
+	}
+	if parts[0].Type != "text" || parts[1].Type != "image_url" {
+		t.Fatalf("unexpected parts: %+v", parts)
+	}
+	if parts[1].ImageURL["url"] != "data:image/png;base64,ZmFrZQ==" {
+		t.Fatalf("image_url=%q", parts[1].ImageURL["url"])
+	}
+}
+
+func TestToAnthropicMessages_ImagePart(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "sys"},
+		{
+			Role: "user",
+			Parts: []ContentPart{
+				{Type: ContentPartTypeText, Text: "describe"},
+				{Type: ContentPartTypeImage, MIMEType: "image/jpeg", Data: "ZmFrZQ=="},
+			},
+		},
+	}
+
+	converted, _ := toAnthropicMessages(msgs)
+	if len(converted) != 1 {
+		t.Fatalf("messages=%d", len(converted))
+	}
+	if len(converted[0].Content) != 2 {
+		t.Fatalf("parts=%d", len(converted[0].Content))
+	}
+	if converted[0].Content[1].Type != "image" {
+		t.Fatalf("part type=%q", converted[0].Content[1].Type)
+	}
+	if converted[0].Content[1].Source == nil || converted[0].Content[1].Source.Data != "ZmFrZQ==" {
+		t.Fatalf("source=%+v", converted[0].Content[1].Source)
+	}
+}
+
+func TestToGeminiMessages_ImagePart(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "sys"},
+		{
+			Role: "user",
+			Parts: []ContentPart{
+				{Type: ContentPartTypeText, Text: "describe"},
+				{Type: ContentPartTypeImage, MIMEType: "image/jpeg", Data: "ZmFrZQ=="},
+			},
+		},
+	}
+
+	converted, _ := toGeminiMessages(msgs)
+	if len(converted) != 1 {
+		t.Fatalf("messages=%d", len(converted))
+	}
+	if len(converted[0].Parts) != 2 {
+		t.Fatalf("parts=%d", len(converted[0].Parts))
+	}
+	if converted[0].Parts[1].InlineData == nil {
+		t.Fatalf("inlineData=nil")
+	}
+	if converted[0].Parts[1].InlineData.Data != "ZmFrZQ==" {
+		t.Fatalf("inline data=%q", converted[0].Parts[1].InlineData.Data)
 	}
 }

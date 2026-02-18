@@ -310,21 +310,26 @@ func toCodexInput(messages []Message) (string, []codexInputItem) {
 		case "system":
 			systemPrompt = m.Content
 		case "user":
+			userText := codexMessageText(m)
+			if strings.TrimSpace(userText) == "" {
+				continue
+			}
 			input = append(input, codexInputItem{
 				Role: "user",
 				Content: []codexInputContent{
-					{Type: "input_text", Text: m.Content},
+					{Type: "input_text", Text: userText},
 				},
 			})
 		case "assistant":
-			if strings.TrimSpace(m.Content) != "" {
+			assistantText := codexMessageText(m)
+			if strings.TrimSpace(assistantText) != "" {
 				input = append(input, codexInputItem{
 					Type:   "message",
 					Role:   "assistant",
 					Status: "completed",
 					ID:     fmt.Sprintf("msg_%d", i),
 					Content: []codexInputContent{
-						{Type: "output_text", Text: m.Content},
+						{Type: "output_text", Text: assistantText},
 					},
 				})
 			}
@@ -359,6 +364,31 @@ func toCodexInput(messages []Message) (string, []codexInputItem) {
 	}
 
 	return systemPrompt, input
+}
+
+func codexMessageText(m Message) string {
+	if strings.TrimSpace(m.Content) != "" {
+		return m.Content
+	}
+	if len(m.Parts) == 0 {
+		return ""
+	}
+	chunks := make([]string, 0, len(m.Parts))
+	for _, p := range m.Parts {
+		switch p.Type {
+		case ContentPartTypeText:
+			if strings.TrimSpace(p.Text) != "" {
+				chunks = append(chunks, p.Text)
+			}
+		case ContentPartTypeImage:
+			label := strings.TrimSpace(p.Name)
+			if label == "" {
+				label = "attached image"
+			}
+			chunks = append(chunks, "["+label+"]")
+		}
+	}
+	return strings.TrimSpace(strings.Join(chunks, "\n"))
 }
 
 func splitCodexToolCallID(id string) (callID string, itemID string) {

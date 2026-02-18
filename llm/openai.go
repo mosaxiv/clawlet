@@ -16,7 +16,7 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, messages []Message, t
 
 	type chatRequest struct {
 		Model       string           `json:"model"`
-		Messages    []Message        `json:"messages"`
+		Messages    []openAIMessage  `json:"messages"`
 		MaxTokens   int              `json:"max_tokens,omitempty"`
 		Temperature *float64         `json:"temperature,omitempty"`
 		Tools       []ToolDefinition `json:"tools,omitempty"`
@@ -24,7 +24,7 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, messages []Message, t
 	}
 	reqBody := chatRequest{
 		Model:       c.Model,
-		Messages:    messages,
+		Messages:    toOpenAIMessages(messages),
 		MaxTokens:   c.maxTokensValue(),
 		Temperature: c.temperatureValue(),
 	}
@@ -105,4 +105,75 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, messages []Message, t
 		})
 	}
 	return out, nil
+}
+
+type openAIMessage struct {
+	Role       string            `json:"role"`
+	Content    any               `json:"content,omitempty"`
+	ToolCalls  []ToolCallPayload `json:"tool_calls,omitempty"`
+	ToolCallID string            `json:"tool_call_id,omitempty"`
+	Name       string            `json:"name,omitempty"`
+}
+
+type openAIContentPart struct {
+	Type     string                 `json:"type"`
+	Text     string                 `json:"text,omitempty"`
+	ImageURL map[string]string      `json:"image_url,omitempty"`
+	Extra    map[string]interface{} `json:"-"`
+}
+
+func toOpenAIMessages(messages []Message) []openAIMessage {
+	out := make([]openAIMessage, 0, len(messages))
+	for _, m := range messages {
+		item := openAIMessage{
+			Role:       m.Role,
+			ToolCalls:  m.ToolCalls,
+			ToolCallID: m.ToolCallID,
+			Name:       m.Name,
+		}
+		if len(m.Parts) > 0 {
+			parts := toOpenAIContentParts(m.Parts)
+			if len(parts) > 0 {
+				item.Content = parts
+			} else if strings.TrimSpace(m.Content) != "" {
+				item.Content = m.Content
+			}
+		} else if strings.TrimSpace(m.Content) != "" {
+			item.Content = m.Content
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func toOpenAIContentParts(parts []ContentPart) []openAIContentPart {
+	out := make([]openAIContentPart, 0, len(parts))
+	for _, part := range parts {
+		switch part.Type {
+		case ContentPartTypeText:
+			if strings.TrimSpace(part.Text) == "" {
+				continue
+			}
+			out = append(out, openAIContentPart{
+				Type: "text",
+				Text: part.Text,
+			})
+		case ContentPartTypeImage:
+			mimeType := strings.TrimSpace(part.MIMEType)
+			if mimeType == "" {
+				mimeType = "image/jpeg"
+			}
+			data := strings.TrimSpace(part.Data)
+			if data == "" {
+				continue
+			}
+			out = append(out, openAIContentPart{
+				Type: "image_url",
+				ImageURL: map[string]string{
+					"url": "data:" + mimeType + ";base64," + data,
+				},
+			})
+		}
+	}
+	return out
 }
