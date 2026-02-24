@@ -97,10 +97,14 @@ func NewLoop(opts LoopOptions) (*Loop, error) {
 	}
 
 	treg := &tools.Registry{
-		WorkspaceDir:        ws,
-		RestrictToWorkspace: opts.Config.Tools.RestrictToWorkspaceValue(),
-		ExecTimeout:         time.Duration(opts.Config.Tools.Exec.TimeoutSec) * time.Second,
-		BraveAPIKey:         opts.Config.Tools.Web.BraveAPIKey,
+		WorkspaceDir:           ws,
+		RestrictToWorkspace:    opts.Config.Tools.RestrictToWorkspaceValue(),
+		ExecTimeout:            time.Duration(opts.Config.Tools.Exec.TimeoutSec) * time.Second,
+		BraveAPIKey:            opts.Config.Tools.Web.BraveAPIKey,
+		WebFetchAllowedDomains: append([]string(nil), opts.Config.Tools.Web.AllowedDomains...),
+		WebFetchBlockedDomains: append([]string(nil), opts.Config.Tools.Web.BlockedDomains...),
+		WebFetchMaxResponse:    opts.Config.Tools.Web.MaxResponseBytes,
+		WebFetchTimeout:        time.Duration(opts.Config.Tools.Web.FetchTimeoutSec) * time.Second,
 		Outbound: func(ctx context.Context, msg bus.OutboundMessage) error {
 			return opts.Bus.PublishOutbound(ctx, msg)
 		},

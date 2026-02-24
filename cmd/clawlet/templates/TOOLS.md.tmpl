@@ -59,6 +59,8 @@ web_fetch(url: string, extractMode?: "markdown"|"text", maxChars?: int) -> strin
 
 Notes:
 - HTML extraction is best-effort (not readability)
+- Access is constrained by `tools.web.allowedDomains` / `tools.web.blockedDomains`
+- Response body size and timeout are controlled by `tools.web.maxResponseBytes` / `tools.web.fetchTimeoutSec`
 
 ## Communication
 

@@ -31,6 +31,10 @@ type Registry struct {
 	AllowTools []string
 
 	BraveAPIKey             string
+	WebFetchAllowedDomains  []string
+	WebFetchBlockedDomains  []string
+	WebFetchMaxResponse     int64
+	WebFetchTimeout         time.Duration
 	Outbound                func(ctx context.Context, msg bus.OutboundMessage) error
 	Spawn                   func(ctx context.Context, task, label, originChannel, originChatID string) (string, error)
 	Cron                    *cron.Service

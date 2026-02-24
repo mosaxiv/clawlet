@@ -167,7 +167,11 @@ type ExecToolConfig struct {
 }
 
 type WebToolsConfig struct {
-	BraveAPIKey string `json:"braveApiKey"`
+	BraveAPIKey      string   `json:"braveApiKey"`
+	AllowedDomains   []string `json:"allowedDomains,omitempty"`
+	BlockedDomains   []string `json:"blockedDomains,omitempty"`
+	MaxResponseBytes int64    `json:"maxResponseBytes,omitempty"`
+	FetchTimeoutSec  int      `json:"fetchTimeoutSec,omitempty"`
 }
 
 type SkillsToolsConfig struct {
@@ -333,6 +337,8 @@ const (
 	DefaultAnthropicBaseURL                = "https://api.anthropic.com"
 	DefaultGeminiBaseURL                   = "https://generativelanguage.googleapis.com/v1beta"
 	DefaultOllamaBaseURL                   = "http://localhost:11434/v1"
+	DefaultWebFetchMaxResponseBytes        = int64(500_000)
+	DefaultWebFetchTimeoutSec              = 30
 	DefaultSkillsMaxResults                = 5
 	DefaultSkillsRegistryBaseURL           = "https://clawhub.ai"
 	DefaultSkillsRegistrySearchPath        = "/api/v1/search"
@@ -418,7 +424,11 @@ func Default() *Config {
 				TimeoutSec: 60,
 			},
 			Web: WebToolsConfig{
-				BraveAPIKey: "",
+				BraveAPIKey:      "",
+				AllowedDomains:   []string{"*"},
+				BlockedDomains:   []string{},
+				MaxResponseBytes: DefaultWebFetchMaxResponseBytes,
+				FetchTimeoutSec:  DefaultWebFetchTimeoutSec,
 			},
 			Skills: SkillsToolsConfig{
 				Enabled:    &skillsEnabled,
@@ -506,6 +516,22 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Tools.Exec.TimeoutSec <= 0 {
 		cfg.Tools.Exec.TimeoutSec = 60
+	}
+	if cfg.Tools.Web.AllowedDomains == nil {
+		cfg.Tools.Web.AllowedDomains = []string{"*"}
+	} else {
+		cfg.Tools.Web.AllowedDomains = normalizeDomainList(cfg.Tools.Web.AllowedDomains)
+	}
+	if cfg.Tools.Web.BlockedDomains == nil {
+		cfg.Tools.Web.BlockedDomains = []string{}
+	} else {
+		cfg.Tools.Web.BlockedDomains = normalizeDomainList(cfg.Tools.Web.BlockedDomains)
+	}
+	if cfg.Tools.Web.MaxResponseBytes <= 0 {
+		cfg.Tools.Web.MaxResponseBytes = DefaultWebFetchMaxResponseBytes
+	}
+	if cfg.Tools.Web.FetchTimeoutSec <= 0 {
+		cfg.Tools.Web.FetchTimeoutSec = DefaultWebFetchTimeoutSec
 	}
 	if cfg.Tools.Skills.Enabled == nil {
 		v := false
@@ -673,6 +699,27 @@ func Load(path string) (*Config, error) {
 	// Apply model routing to populate cfg.LLM for runtime use.
 	cfg.ApplyLLMRouting()
 	return &cfg, nil
+}
+
+func normalizeDomainList(in []string) []string {
+	if len(in) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(in))
+	for _, raw := range in {
+		v := strings.ToLower(strings.TrimSpace(raw))
+		v = strings.TrimPrefix(v, ".")
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }
 
 func Save(path string, cfg *Config) error {

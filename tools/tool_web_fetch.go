@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	defaultWebFetchTimeoutSec  = 30
+	defaultWebFetchBodyMaxSize = int64(4 << 20)
+)
+
 func (r *Registry) webFetch(ctx context.Context, rawURL string, extractMode string, maxChars int) (string, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
@@ -28,6 +33,13 @@ func (r *Registry) webFetch(ctx context.Context, rawURL string, extractMode stri
 	if strings.TrimSpace(pu.Host) == "" {
 		return "", errors.New("missing host")
 	}
+	host := normalizeFetchHost(pu.Host)
+	if host == "" {
+		return "", errors.New("missing host")
+	}
+	if allowed, reason := allowHostByPolicy(host, r.WebFetchAllowedDomains, r.WebFetchBlockedDomains); !allowed {
+		return "", fmt.Errorf("web_fetch blocked: %s", reason)
+	}
 
 	if strings.TrimSpace(extractMode) == "" {
 		extractMode = "markdown"
@@ -42,32 +54,46 @@ func (r *Registry) webFetch(ctx context.Context, rawURL string, extractMode stri
 		maxChars = 100
 	}
 
+	timeout := r.WebFetchTimeout
+	if timeout <= 0 {
+		timeout = defaultWebFetchTimeoutSec * time.Second
+	}
+	maxBodyBytes := r.WebFetchMaxResponse
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = defaultWebFetchBodyMaxSize
+	}
+
 	type outT struct {
-		URL       string `json:"url"`
-		FinalURL  string `json:"finalUrl,omitempty"`
-		Status    int    `json:"status"`
-		Extractor string `json:"extractor"`
-		Truncated bool   `json:"truncated"`
-		Length    int    `json:"length"`
-		Text      string `json:"text"`
-		Error     string `json:"error,omitempty"`
+		URL               string `json:"url"`
+		FinalURL          string `json:"finalUrl,omitempty"`
+		Status            int    `json:"status"`
+		Extractor         string `json:"extractor"`
+		Truncated         bool   `json:"truncated"`
+		ResponseTruncated bool   `json:"responseTruncated,omitempty"`
+		Length            int    `json:"length"`
+		Text              string `json:"text"`
+		Error             string `json:"error,omitempty"`
 	}
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return errors.New("stopped after 5 redirects")
 			}
+			rh := normalizeFetchHost(req.URL.Host)
+			if allowed, reason := allowHostByPolicy(rh, r.WebFetchAllowedDomains, r.WebFetchBlockedDomains); !allowed {
+				return fmt.Errorf("redirect blocked: %s", reason)
+			}
 			return nil
 		},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", "clawlet/0.1")
-	resp, err := client.Do(req)
+	request.Header.Set("User-Agent", "clawlet/0.1")
+	resp, err := client.Do(request)
 	if err != nil {
 		b, _ := json.Marshal(outT{URL: rawURL, Status: 0, Extractor: "error", Truncated: false, Length: 0, Text: "", Error: err.Error()})
 		return string(b), nil
@@ -79,13 +105,16 @@ func (r *Registry) webFetch(ctx context.Context, rawURL string, extractMode stri
 		finalURL = resp.Request.URL.String()
 	}
 
-	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+	responseTruncated := int64(len(bodyBytes)) > maxBodyBytes
+	if responseTruncated {
+		bodyBytes = bodyBytes[:maxBodyBytes]
+	}
 	ct := strings.ToLower(resp.Header.Get("Content-Type"))
 
 	extractor := "raw"
 	text := ""
 
-	// JSON
 	if strings.Contains(ct, "application/json") {
 		var buf bytes.Buffer
 		if err := json.Indent(&buf, bodyBytes, "", "  "); err == nil {
@@ -95,7 +124,6 @@ func (r *Registry) webFetch(ctx context.Context, rawURL string, extractMode stri
 			text = string(bodyBytes)
 		}
 	} else if strings.Contains(ct, "text/html") || looksLikeHTML(bodyBytes) {
-		// HTML
 		extractor = "html"
 		title, plain := extractHTMLText(string(bodyBytes))
 		if extractMode == "markdown" {
@@ -108,13 +136,12 @@ func (r *Registry) webFetch(ctx context.Context, rawURL string, extractMode stri
 			text = plain
 		}
 	} else {
-		// Other text
 		text = strings.TrimSpace(string(bodyBytes))
 	}
 
-	truncated := false
+	outputTruncated := responseTruncated
 	if len(text) > maxChars {
-		truncated = true
+		outputTruncated = true
 		text = text[:maxChars]
 	}
 
@@ -124,14 +151,15 @@ func (r *Registry) webFetch(ctx context.Context, rawURL string, extractMode stri
 	}
 
 	o := outT{
-		URL:       rawURL,
-		FinalURL:  finalURL,
-		Status:    resp.StatusCode,
-		Extractor: extractor,
-		Truncated: truncated,
-		Length:    len(text),
-		Text:      text,
-		Error:     errText,
+		URL:               rawURL,
+		FinalURL:          finalURL,
+		Status:            resp.StatusCode,
+		Extractor:         extractor,
+		Truncated:         outputTruncated,
+		ResponseTruncated: responseTruncated,
+		Length:            len(text),
+		Text:              text,
+		Error:             errText,
 	}
 	b, _ := json.Marshal(o)
 	return string(b), nil

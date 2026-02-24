@@ -83,10 +83,14 @@ func New(opts Options) (*Agent, error) {
 	}
 
 	treg := &tools.Registry{
-		WorkspaceDir:        wsAbs,
-		RestrictToWorkspace: opts.Config.Tools.RestrictToWorkspaceValue(),
-		ExecTimeout:         time.Duration(opts.Config.Tools.Exec.TimeoutSec) * time.Second,
-		BraveAPIKey:         opts.Config.Tools.Web.BraveAPIKey,
+		WorkspaceDir:           wsAbs,
+		RestrictToWorkspace:    opts.Config.Tools.RestrictToWorkspaceValue(),
+		ExecTimeout:            time.Duration(opts.Config.Tools.Exec.TimeoutSec) * time.Second,
+		BraveAPIKey:            opts.Config.Tools.Web.BraveAPIKey,
+		WebFetchAllowedDomains: append([]string(nil), opts.Config.Tools.Web.AllowedDomains...),
+		WebFetchBlockedDomains: append([]string(nil), opts.Config.Tools.Web.BlockedDomains...),
+		WebFetchMaxResponse:    opts.Config.Tools.Web.MaxResponseBytes,
+		WebFetchTimeout:        time.Duration(opts.Config.Tools.Web.FetchTimeoutSec) * time.Second,
 		ReadSkill: func(name string) (string, bool) {
 			// CLI agent doesn't have a skills loader; use the embedded loader via workspace.
 			l := skills.New(wsAbs)

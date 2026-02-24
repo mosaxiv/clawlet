@@ -152,7 +152,7 @@ func defWebFetch() llm.ToolDefinition {
 		Type: "function",
 		Function: llm.FunctionDefinition{
 			Name:        "web_fetch",
-			Description: "Fetch a URL and extract readable content.",
+			Description: "Fetch a URL and extract readable content (subject to web domain and response-size policy).",
 			Parameters: llm.JSONSchema{
 				Type: "object",
 				Properties: map[string]llm.JSONSchema{
