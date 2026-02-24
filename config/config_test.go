@@ -291,6 +291,45 @@ func TestGatewayDefaults_LocalhostAndNoPublicBind(t *testing.T) {
 	}
 }
 
+func TestWebFetchPolicyDefaultsAndNormalization(t *testing.T) {
+	cfg := Default()
+	if got := len(cfg.Tools.Web.AllowedDomains); got != 1 || cfg.Tools.Web.AllowedDomains[0] != "*" {
+		t.Fatalf("default tools.web.allowedDomains=%v", cfg.Tools.Web.AllowedDomains)
+	}
+	if cfg.Tools.Web.MaxResponseBytes != DefaultWebFetchMaxResponseBytes {
+		t.Fatalf("default tools.web.maxResponseBytes=%d", cfg.Tools.Web.MaxResponseBytes)
+	}
+	if cfg.Tools.Web.FetchTimeoutSec != DefaultWebFetchTimeoutSec {
+		t.Fatalf("default tools.web.fetchTimeoutSec=%d", cfg.Tools.Web.FetchTimeoutSec)
+	}
+
+	cfg.Tools.Web.AllowedDomains = []string{"  Example.COM  ", ".api.example.com", ""}
+	cfg.Tools.Web.BlockedDomains = []string{" Internal.EXAMPLE.com ", "", "example.com"}
+	cfg.Tools.Web.MaxResponseBytes = 0
+	cfg.Tools.Web.FetchTimeoutSec = 0
+
+	tmp := t.TempDir() + "/cfg.json"
+	if err := Save(tmp, cfg); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	loaded, err := Load(tmp)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := loaded.Tools.Web.AllowedDomains; len(got) != 2 || got[0] != "example.com" || got[1] != "api.example.com" {
+		t.Fatalf("normalized allowedDomains=%v", got)
+	}
+	if got := loaded.Tools.Web.BlockedDomains; len(got) != 2 || got[0] != "internal.example.com" || got[1] != "example.com" {
+		t.Fatalf("normalized blockedDomains=%v", got)
+	}
+	if loaded.Tools.Web.MaxResponseBytes != DefaultWebFetchMaxResponseBytes {
+		t.Fatalf("loaded tools.web.maxResponseBytes=%d", loaded.Tools.Web.MaxResponseBytes)
+	}
+	if loaded.Tools.Web.FetchTimeoutSec != DefaultWebFetchTimeoutSec {
+		t.Fatalf("loaded tools.web.fetchTimeoutSec=%d", loaded.Tools.Web.FetchTimeoutSec)
+	}
+}
+
 func TestSkillsRegistryDefaults(t *testing.T) {
 	cfg := Default()
 	if cfg.Tools.Skills.EnabledValue() {
