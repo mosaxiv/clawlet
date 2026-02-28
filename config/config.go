@@ -336,6 +336,7 @@ const (
 	DefaultOpenRouterBaseURL               = "https://openrouter.ai/api/v1"
 	DefaultAnthropicBaseURL                = "https://api.anthropic.com"
 	DefaultGeminiBaseURL                   = "https://generativelanguage.googleapis.com/v1beta"
+	DefaultShengSuanYunBaseURL             = "https://router.shengsuanyun.com/api/v1"
 	DefaultOllamaBaseURL                   = "http://localhost:11434/v1"
 	DefaultWebFetchMaxResponseBytes        = int64(500_000)
 	DefaultWebFetchTimeoutSec              = 30
@@ -808,6 +809,8 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 			cfg.LLM.BaseURL = DefaultGeminiBaseURL
 		case "ollama":
 			cfg.LLM.BaseURL = DefaultOllamaBaseURL
+		case "shengsuanyun":
+			cfg.LLM.BaseURL = DefaultShengSuanYunBaseURL
 		}
 	}
 
@@ -817,6 +820,8 @@ func (cfg *Config) ApplyLLMRouting() (provider string, configuredModel string) {
 			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["OPENAI_API_KEY"])
 		case "openrouter":
 			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["OPENROUTER_API_KEY"])
+		case "shengsuanyun":
+			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["SHENGSUANYUN_API_KEY"])
 		case "anthropic":
 			cfg.LLM.APIKey = strings.TrimSpace(cfg.Env["ANTHROPIC_API_KEY"])
 		case "gemini":
@@ -840,6 +845,9 @@ func parseRoutedModel(s string) (provider string, model string) {
 	}
 	if after, ok := strings.CutPrefix(s, "openrouter/"); ok {
 		return "openrouter", after
+	}
+	if after, ok := strings.CutPrefix(s, "shengsuanyun/"); ok {
+		return "shengsuanyun", after
 	}
 	if after, ok := strings.CutPrefix(s, "anthropic/"); ok {
 		return "anthropic", after

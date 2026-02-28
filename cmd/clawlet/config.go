@@ -101,6 +101,12 @@ func applyEnvOverrides(cfg *config.Config) {
 		}
 		cfg.Env["GOOGLE_API_KEY"] = v
 	}
+	if v := os.Getenv("SHENGSUANYUN_API_KEY"); v != "" {
+		if cfg.Env == nil {
+			cfg.Env = map[string]string{}
+		}
+		cfg.Env["SHENGSUANYUN_API_KEY"] = v
+	}
 	if v := strings.TrimSpace(os.Getenv("CLAWLET_WEB_ALLOWED_DOMAINS")); v != "" {
 		cfg.Tools.Web.AllowedDomains = splitCSV(v)
 	}
