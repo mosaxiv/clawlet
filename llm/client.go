@@ -42,7 +42,7 @@ func (c *Client) Chat(ctx context.Context, messages []Message, tools []ToolDefin
 		c.HTTP = &http.Client{Timeout: 120 * time.Second}
 	}
 	switch normalizeProvider(c.Provider) {
-	case "", "openai", "openrouter", "ollama":
+	case "", "openai", "openrouter", "ollama","shengsuanyun":
 		return c.chatOpenAICompatible(ctx, messages, tools)
 	case "anthropic":
 		return c.chatAnthropic(ctx, messages, tools)
