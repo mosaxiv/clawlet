@@ -90,3 +90,23 @@ func TestSave_AfterConsolidationPersistsTrimmedMessages(t *testing.T) {
 		t.Fatalf("messages=%d want=%d", got, keep)
 	}
 }
+
+func TestListKeysIncludesSavedSessionKey(t *testing.T) {
+	dir := t.TempDir()
+	key := "cli:test"
+	s := New(key)
+	if err := Save(dir, s); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	keys, err := ListKeys(dir)
+	if err != nil {
+		t.Fatalf("list keys: %v", err)
+	}
+	if len(keys) != 1 {
+		t.Fatalf("keys=%v", keys)
+	}
+	if keys[0] != key {
+		t.Fatalf("unexpected key %q", keys[0])
+	}
+}

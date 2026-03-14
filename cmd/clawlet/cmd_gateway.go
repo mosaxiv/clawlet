@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mosaxiv/clawlet/agent"
 	"github.com/mosaxiv/clawlet/bus"
 	"github.com/mosaxiv/clawlet/channels"
 	"github.com/mosaxiv/clawlet/channels/discord"
+	"github.com/mosaxiv/clawlet/channels/feishu"
 	"github.com/mosaxiv/clawlet/channels/slack"
 	"github.com/mosaxiv/clawlet/channels/telegram"
 	"github.com/mosaxiv/clawlet/channels/whatsapp"
@@ -60,7 +62,12 @@ func cmdGateway() *cli.Command {
 					}
 					ch := job.Payload.Channel
 					to := job.Payload.To
-					if !job.Payload.Deliver || strings.TrimSpace(ch) == "" || strings.TrimSpace(to) == "" {
+					if !job.Payload.Deliver {
+						fmt.Printf("cron job %s executed (no delivery)\n", job.ID)
+						return "", nil
+					}
+					if strings.TrimSpace(ch) == "" || strings.TrimSpace(to) == "" {
+						fmt.Printf("cron job %s executed but no channel/to specified\n", job.ID)
 						return "", nil
 					}
 					_ = b.PublishInbound(ctx, bus.InboundMessage{
@@ -98,12 +105,29 @@ func cmdGateway() *cli.Command {
 				}
 			}
 
+			onHeartbeat := func(ctx context.Context, prompt string) (string, error) {
+				resp, err := loop.ProcessDirect(ctx, prompt, "heartbeat", "cli", "heartbeat")
+				if err != nil {
+					return "", err
+				}
+				if strings.TrimSpace(cfg.Heartbeat.TargetChannel) != "" && strings.TrimSpace(cfg.Heartbeat.TargetChatID) != "" {
+					msg := "heartbeat OK"
+					if strings.TrimSpace(resp) != "" && !heartbeat.IsHeartbeatOK(resp) {
+						msg = "heartbeat FAILED: " + truncateForLog(resp, 400)
+					}
+					_ = b.PublishOutbound(ctx, bus.OutboundMessage{
+						Channel: cfg.Heartbeat.TargetChannel,
+						ChatID:  cfg.Heartbeat.TargetChatID,
+						Content: msg,
+					})
+				}
+				return resp, nil
+			}
+
 			hb := heartbeat.New(wsAbs, heartbeat.Options{
 				Enabled:     cfg.Heartbeat.EnabledValue(),
 				IntervalSec: cfg.Heartbeat.IntervalSec,
-				OnHeartbeat: func(ctx context.Context, prompt string) (string, error) {
-					return loop.ProcessDirect(ctx, prompt, "heartbeat", "cli", "heartbeat")
-				},
+				OnHeartbeat: onHeartbeat,
 			})
 			hb.Start(ctx)
 
@@ -137,6 +161,15 @@ func cmdGateway() *cli.Command {
 					return fmt.Errorf("whatsapp is not linked; run: clawlet channels login --channel whatsapp")
 				}
 				cm.Add(whatsapp.New(cfg.Channels.WhatsApp, b))
+			}
+			if cfg.Channels.Feishu.Enabled {
+				if strings.TrimSpace(cfg.Channels.Feishu.AppID) == "" {
+					return fmt.Errorf("feishu enabled but appId is empty")
+				}
+				if strings.TrimSpace(cfg.Channels.Feishu.AppSecret) == "" {
+					return fmt.Errorf("feishu enabled but appSecret is empty")
+				}
+				cm.Add(feishu.New(cfg.Channels.Feishu, b))
 			}
 
 			if err := cm.StartAll(ctx); err != nil {
@@ -196,4 +229,24 @@ func isLocalGatewayHost(host string) bool {
 		return ip.IsLoopback()
 	}
 	return false
+}
+
+func truncateForLog(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 {
+		max = 200
+	}
+	if len(s) <= max {
+		return s
+	}
+	// Truncate at UTF-8 boundary to avoid invalid encoding
+	truncated := s
+	for len(truncated) > max-3 { // Reserve space for "..."
+		_, size := utf8.DecodeLastRuneInString(truncated)
+		if size == 0 {
+			break
+		}
+		truncated = truncated[:len(truncated)-size]
+	}
+	return truncated + "...(truncated)"
 }

@@ -94,6 +94,7 @@ func NewLoop(opts LoopOptions) (*Loop, error) {
 		MaxTokens:   opts.Config.Agents.Defaults.MaxTokensValue(),
 		Temperature: opts.Config.Agents.Defaults.Temperature,
 		Headers:     opts.Config.LLM.Headers,
+		LogLevel:    opts.Config.Log.LevelValue(),
 	}
 
 	treg := &tools.Registry{

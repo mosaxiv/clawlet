@@ -28,6 +28,7 @@ func cmdStatus() *cli.Command {
 			}
 			fmt.Printf("agents.defaults.maxTokens: %d\n", cfg.Agents.Defaults.MaxTokensValue())
 			fmt.Printf("agents.defaults.temperature: %.2f\n", cfg.Agents.Defaults.TemperatureValue())
+			fmt.Printf("log.level: %s\n", cfg.Log.LevelValue())
 			fmt.Printf("tools.restrictToWorkspace: %v\n", cfg.Tools.RestrictToWorkspaceValue())
 			fmt.Printf("tools.exec.timeoutSec: %d\n", cfg.Tools.Exec.TimeoutSec)
 			fmt.Printf("tools.web.braveApiKey: %v\n", cfg.Tools.Web.BraveAPIKey != "")

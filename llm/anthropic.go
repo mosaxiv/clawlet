@@ -58,12 +58,19 @@ func (c *Client) chatAnthropic(ctx context.Context, messages []Message, tools []
 		req.Header.Set(k, v)
 	}
 
+	// Debug log request
+	c.debugLog("LLM Request to %s: %s", endpoint, string(b))
+
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+
+	// Debug log response
+	c.debugLog("LLM Response from %s (status %d): %s", endpoint, resp.StatusCode, string(body))
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("llm http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
@@ -109,6 +116,8 @@ func (c *Client) chatAnthropic(ctx context.Context, messages []Message, tools []
 		}
 	}
 	out.Content = strings.Join(textParts, "\n")
+	// Record token usage if available.
+	RecordTokenUsageFromResponse(body)
 	return out, nil
 }
 

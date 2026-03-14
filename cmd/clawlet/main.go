@@ -3,12 +3,30 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 
+	"github.com/mosaxiv/clawlet/paths"
 	"github.com/urfave/cli/v3"
 )
 
 func main() {
+	// Get config directory for log file
+	configDir, err := paths.ConfigDir()
+	if err != nil {
+		log.Fatal("Failed to get config directory:", err)
+	}
+	logPath := filepath.Join(configDir, "clawlet.log")
+
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal("Failed to open log file:", err)
+	}
+	defer file.Close()
+	log.SetOutput(file)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+
 	root := &cli.Command{
 		Name:    "clawlet",
 		Usage:   "minimal Go agent",
@@ -22,6 +40,8 @@ func main() {
 			cmdProvider(),
 			cmdChannels(),
 			cmdCron(),
+			cmdStats(),
+			cmdSessions(),
 		},
 	}
 

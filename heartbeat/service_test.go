@@ -17,8 +17,8 @@ func TestIsHeartbeatOK(t *testing.T) {
 		{"nothing to do: HEARTBEAT_OK", true},
 	}
 	for _, c := range cases {
-		if got := isHeartbeatOK(c.in); got != c.want {
-			t.Fatalf("isHeartbeatOK(%q)=%v want %v", c.in, got, c.want)
+		if got := IsHeartbeatOK(c.in); got != c.want {
+			t.Fatalf("IsHeartbeatOK(%q)=%v want %v", c.in, got, c.want)
 		}
 	}
 }
