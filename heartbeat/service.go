@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -43,6 +44,8 @@ func New(workspace string, opts Options) *Service {
 	if sec <= 0 {
 		sec = DefaultIntervalSec
 	}
+	log.Printf("heartbeat: initialized with interval %v", sec)
+
 	return &Service{
 		workspace: workspace,
 		onBeat:    opts.OnHeartbeat,
@@ -110,7 +113,7 @@ func (s *Service) tick(ctx context.Context) {
 		log.Printf("heartbeat: error: %v", err)
 		return
 	}
-	if isHeartbeatOK(resp) {
+	if IsHeartbeatOK(resp) {
 		return
 	}
 	if strings.TrimSpace(resp) != "" {
@@ -157,8 +160,9 @@ func isEmpty(content string) bool {
 	return true
 }
 
-func isHeartbeatOK(resp string) bool {
-	// Tolerate case/underscore/whitespace variations.
+// IsHeartbeatOK reports whether the response should be treated as an OK acknowledgement.
+// It tolerates case / whitespace / underscore variations.
+func IsHeartbeatOK(resp string) bool {
 	return strings.Contains(normalizeToken(resp), normalizeToken(OKToken))
 }
 
@@ -170,7 +174,16 @@ func truncateForLog(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
-	return s[:max] + "...(truncated)"
+	// Truncate at UTF-8 boundary to avoid invalid encoding
+	truncated := s
+	for len(truncated) > max-3 { // Reserve space for "..."
+		_, size := utf8.DecodeLastRuneInString(truncated)
+		if size == 0 {
+			break
+}
+		truncated = truncated[:len(truncated)-size]
+	}
+	return truncated + "...(truncated)"
 }
 
 func normalizeToken(s string) string {

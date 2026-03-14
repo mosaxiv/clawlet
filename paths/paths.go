@@ -47,6 +47,14 @@ func WorkspaceDir() string {
 	return filepath.Join(dir, "workspace")
 }
 
+func TokenUsagePath() string {
+	dir, err := ConfigDir()
+	if err != nil {
+		return ".clawlet/token_usage.json"
+	}
+	return filepath.Join(dir, "token_usage.json")
+}
+
 func EnsureStateDirs() error {
 	cfgDir, err := ConfigDir()
 	if err != nil {

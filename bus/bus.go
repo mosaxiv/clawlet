@@ -49,11 +49,12 @@ type InboundMessage struct {
 }
 
 type OutboundMessage struct {
-	Channel  string
-	ChatID   string
-	Content  string
-	ReplyTo  string
-	Delivery Delivery
+	Channel     string
+	ChatID      string
+	Content     string
+	ReplyTo     string
+	Delivery    Delivery
+	Attachments []Attachment
 }
 
 type Bus struct {

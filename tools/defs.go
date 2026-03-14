@@ -213,6 +213,27 @@ func defMessage() llm.ToolDefinition {
 	}
 }
 
+func defSendFile() llm.ToolDefinition {
+	return llm.ToolDefinition{
+		Type: "function",
+		Function: llm.FunctionDefinition{
+			Name:        "send_file",
+			Description: "Send a file to a specific channel/chat_id. Supports local files and data.",
+			Parameters: llm.JSONSchema{
+				Type: "object",
+				Properties: map[string]llm.JSONSchema{
+					"file_path": {Type: "string", Description: "Path to local file to send (relative to workspace)."},
+					"file_name": {Type: "string", Description: "Display name for the file."},
+					"channel":   {Type: "string", Description: "Target channel (e.g., 'telegram')."},
+					"chat_id":   {Type: "string", Description: "Target chat ID."},
+					"caption":   {Type: "string", Description: "Optional caption/text to send with the file."},
+				},
+				Required: []string{"file_path", "channel", "chat_id"},
+			},
+		},
+	}
+}
+
 func defSpawn() llm.ToolDefinition {
 	return llm.ToolDefinition{
 		Type: "function",

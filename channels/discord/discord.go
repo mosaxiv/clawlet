@@ -1,12 +1,14 @@
 package discord
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -103,7 +105,8 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return fmt.Errorf("chat_id is empty")
 	}
 	content := strings.TrimSpace(msg.Content)
-	if content == "" {
+	attachments := msg.Attachments
+	if content == "" && len(attachments) == 0 {
 		return nil
 	}
 
@@ -125,7 +128,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	replyToID := resolveDiscordReplyTarget(msg)
 	const maxAttempts = 3
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		err := sendDiscordMessage(dg, chID, content, replyToID)
+		err := sendDiscordMessage(dg, chID, content, replyToID, attachments)
 		if err == nil {
 			return nil
 		}
@@ -233,21 +236,43 @@ func buildDiscordDelivery(m *discordgo.MessageCreate) bus.Delivery {
 	return d
 }
 
-func sendDiscordMessage(dg *discordgo.Session, chID, content, replyToID string) error {
-	if replyToID == "" {
-		_, err := dg.ChannelMessageSend(chID, content)
-		return err
-	}
-	_, err := dg.ChannelMessageSendComplex(chID, &discordgo.MessageSend{
+func sendDiscordMessage(dg *discordgo.Session, chID, content, replyToID string, attachments []bus.Attachment) error {
+	msgSend := &discordgo.MessageSend{
 		Content: content,
-		Reference: &discordgo.MessageReference{
+	}
+
+	// Add reply reference if needed
+	if replyToID != "" {
+		msgSend.Reference = &discordgo.MessageReference{
 			MessageID: replyToID,
 			ChannelID: chID,
-		},
-		AllowedMentions: &discordgo.MessageAllowedMentions{
+		}
+		msgSend.AllowedMentions = &discordgo.MessageAllowedMentions{
 			RepliedUser: false,
-		},
+		}
+	}
+
+	// Add attachments
+	for _, att := range attachments {
+		if att.Data != nil {
+			msgSend.Files = append(msgSend.Files, &discordgo.File{
+				Name:   att.Name,
+				Reader: bytes.NewReader(att.Data),
 	})
+		} else if att.LocalPath != "" {
+			file, err := os.Open(att.LocalPath)
+			if err != nil {
+	return err
+}
+			defer file.Close()
+			msgSend.Files = append(msgSend.Files, &discordgo.File{
+				Name:   att.Name,
+				Reader: file,
+			})
+		}
+	}
+
+	_, err := dg.ChannelMessageSendComplex(chID, msgSend)
 	return err
 }
 

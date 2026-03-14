@@ -358,6 +358,59 @@ clawlet gateway
 
 </details>
 
+<details>
+<summary><b>Feishu (Lark)</b></summary>
+
+Uses **WebSocket** (no public URL required). clawlet connects to Feishu's WebSocket gateway to receive events in real-time.
+
+1. Create a Feishu/Lark app
+   - Go to https://open.feishu.cn/ and create a new enterprise app
+   - Copy `App ID` (cli_xxx) and `App Secret` from credentials
+
+2. Configure event subscription
+   - Enable **Event Subscription** and subscribe to `im.message.receive_v1`
+   - No webhook URL needed (WebSocket mode)
+
+3. Add bot permissions
+   - Bot read/write message permissions
+   - Install the app to your workspace
+
+4. Get user OpenID (for allowFrom)
+   - In Feishu, user IDs are OpenIDs (format: `ou_xxxxx`)
+   - Empty `allowFrom` allows all users
+
+5. Configure clawlet
+   - Set `channels.feishu.enabled=true`
+   - Configure `appId` and `appSecret`
+
+Example config (merge into `~/.clawlet/config.json`):
+
+```json
+{
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "cli_xxxxxxxxxxxxx",
+      "appSecret": "your-app-secret-here",
+      "allowFrom": ["ou_xxxxxxxxxxxxx"]
+    }
+  }
+}
+```
+
+Then run:
+
+```bash
+clawlet gateway
+```
+
+Notes:
+- The connection is automatic once the app is properly configured
+- Both private messages and group messages are supported
+- For group messages, the bot needs to be @mentioned by default
+
+</details>
+
 ## CLI Reference
 
 | Command | Description |

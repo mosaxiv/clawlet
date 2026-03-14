@@ -1,9 +1,12 @@
 package slack
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -151,7 +154,8 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return fmt.Errorf("chat_id is empty")
 	}
 	text := strings.TrimSpace(msg.Content)
-	if text == "" {
+	attachments := msg.Attachments
+	if text == "" && len(attachments) == 0 {
 		return nil
 	}
 	c.mu.Lock()
@@ -175,6 +179,8 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		c.mu.Unlock()
 	}
 
+	// Send text message first if present
+	if text != "" {
 	threadTS, direct := slackThreadMeta(msg)
 	opts := []slack.MsgOption{
 		slack.MsgOptionText(text, false),
@@ -184,6 +190,45 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		opts = append(opts, slack.MsgOptionTS(threadTS))
 	}
 	_, _, err := api.PostMessageContext(ctx, ch, opts...)
+		if err != nil {
+	return err
+}
+	}
+
+	// Send attachments
+	for _, att := range attachments {
+		if err := c.sendSlackAttachment(ctx, api, ch, att, msg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *Channel) sendSlackAttachment(ctx context.Context, api *slack.Client, ch string, att bus.Attachment, msg bus.OutboundMessage) error {
+	var reader io.Reader
+	var filename string
+
+	if att.Data != nil {
+		reader = bytes.NewReader(att.Data)
+		filename = att.Name
+	} else if att.LocalPath != "" {
+		file, err := os.Open(att.LocalPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		reader = file
+		filename = att.Name
+	} else {
+		return fmt.Errorf("attachment has no data or local path")
+	}
+
+	_, err := api.UploadFileContext(ctx, slack.FileUploadParameters{
+		Reader:   reader,
+		Filename: filename,
+		Channels: []string{ch},
+	})
 	return err
 }
 

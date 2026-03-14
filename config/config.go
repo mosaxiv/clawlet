@@ -18,6 +18,7 @@ type Config struct {
 	Cron      CronConfig      `json:"cron"`
 	Heartbeat HeartbeatConfig `json:"heartbeat"`
 	Gateway   GatewayConfig   `json:"gateway"`
+	Log       LogConfig       `json:"log,omitempty"`
 	// Channels are optional; enable what you need.
 	Channels ChannelsConfig `json:"channels"`
 }
@@ -238,6 +239,17 @@ func (c MediaToolsConfig) AttachmentEnabledValue() bool {
 	return *c.AttachmentEnabled
 }
 
+type LogConfig struct {
+	Level string `json:"level,omitempty"`
+}
+
+func (c LogConfig) LevelValue() string {
+	if strings.TrimSpace(c.Level) == "" {
+		return "warning"
+	}
+	return strings.ToLower(strings.TrimSpace(c.Level))
+}
+
 type CronConfig struct {
 	Enabled *bool `json:"enabled"`
 }
@@ -250,8 +262,10 @@ func (c CronConfig) EnabledValue() bool {
 }
 
 type HeartbeatConfig struct {
-	Enabled     *bool `json:"enabled"`
-	IntervalSec int   `json:"intervalSec"`
+	Enabled       *bool  `json:"enabled"`
+	IntervalSec   int    `json:"intervalSec"`
+	TargetChannel string `json:"targetChannel,omitempty"` // e.g. "telegram"
+	TargetChatID  string `json:"targetChatId,omitempty"`
 }
 
 func (c HeartbeatConfig) EnabledValue() bool {
@@ -275,6 +289,7 @@ type ChannelsConfig struct {
 	Slack    SlackConfig    `json:"slack"`
 	Telegram TelegramConfig `json:"telegram"`
 	WhatsApp WhatsAppConfig `json:"whatsapp"`
+	Feishu   FeishuConfig   `json:"feishu"`
 }
 
 type DiscordConfig struct {
@@ -318,6 +333,14 @@ type WhatsAppConfig struct {
 	Enabled          bool     `json:"enabled"`
 	AllowFrom        []string `json:"allowFrom"`
 	SessionStorePath string   `json:"sessionStorePath,omitempty"` // optional: sqlite store path for persistent login
+}
+
+// Feishu/Lark (WebSocket long connection, no public IP needed).
+type FeishuConfig struct {
+	Enabled   bool     `json:"enabled"`
+	AllowFrom []string `json:"allowFrom"`
+	AppID     string   `json:"appId"`     // App ID from Feishu developer console
+	AppSecret string   `json:"appSecret"` // App Secret from Feishu developer console
 }
 
 const (
@@ -496,6 +519,12 @@ func Default() *Config {
 				Enabled:   false,
 				AllowFrom: nil,
 			},
+			Feishu: FeishuConfig{
+				Enabled:   false,
+				AllowFrom: nil,
+				AppID:     "",
+				AppSecret: "",
+		},
 		},
 	}
 }

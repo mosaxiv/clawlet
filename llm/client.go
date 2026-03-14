@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ type Client struct {
 	MaxTokens   int
 	Temperature *float64
 	Headers     map[string]string
+	LogLevel    string
 	HTTP        HTTPDoer
 }
 
@@ -41,8 +43,9 @@ func (c *Client) Chat(ctx context.Context, messages []Message, tools []ToolDefin
 	if c.HTTP == nil {
 		c.HTTP = &http.Client{Timeout: 120 * time.Second}
 	}
+
 	switch normalizeProvider(c.Provider) {
-	case "", "openai", "openrouter", "ollama","shengsuanyun":
+	case "", "openai", "openrouter", "ollama", "shengsuanyun":
 		return c.chatOpenAICompatible(ctx, messages, tools)
 	case "anthropic":
 		return c.chatAnthropic(ctx, messages, tools)
@@ -52,6 +55,22 @@ func (c *Client) Chat(ctx context.Context, messages []Message, tools []ToolDefin
 		return c.chatOpenAICodex(ctx, messages, tools)
 	default:
 		return nil, fmt.Errorf("unsupported llm provider: %s", strings.TrimSpace(c.Provider))
+	}
+}
+
+func (c *Client) shouldLogDebug() bool {
+	level := strings.ToLower(strings.TrimSpace(c.LogLevel))
+	switch level {
+	case "debug", "trace":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *Client) debugLog(format string, args ...interface{}) {
+	if c.shouldLogDebug() {
+		log.Printf("[DEBUG] "+format, args...)
 	}
 }
 

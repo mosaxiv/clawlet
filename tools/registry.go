@@ -65,7 +65,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 		defs = append(defs, defWebSearch())
 	}
 	if r.Outbound != nil {
-		defs = append(defs, defMessage())
+		defs = append(defs, defMessage(), defSendFile())
 	}
 	if r.Spawn != nil {
 		defs = append(defs, defSpawn())
@@ -224,10 +224,34 @@ func (r *Registry) Execute(ctx context.Context, tctx Context, name string, args 
 		// Avoid duplicate sends to the active conversation; reply with normal assistant text instead.
 		if strings.TrimSpace(tctx.Channel) != "" && strings.TrimSpace(tctx.ChatID) != "" {
 			if ch == strings.TrimSpace(tctx.Channel) && cid == strings.TrimSpace(tctx.ChatID) {
-				return "", errors.New("message to current session is not allowed; respond with assistant text instead")
+				return "", errors.New("message to current session is not allowed; use a different chat_id to send to another conversation/channel")
+			}
+		}
+		// Avoid duplicate sends to the active conversation; reply with normal assistant text instead.
+		if strings.TrimSpace(tctx.Channel) != "" && strings.TrimSpace(tctx.ChatID) != "" {
+			if ch == strings.TrimSpace(tctx.Channel) && cid == strings.TrimSpace(tctx.ChatID) {
+				return "", errors.New("message to current session is not allowed; use a different chat_id to send to another conversation/channel")
 			}
 		}
 		return r.message(ctx, ch, cid, a.Content)
+	case "send_file":
+		var a struct {
+			FilePath string `json:"file_path"`
+			FileName string `json:"file_name"`
+			Channel  string `json:"channel"`
+			ChatID   string `json:"chat_id"`
+			Caption  string `json:"caption"`
+		}
+		if err := json.Unmarshal(args, &a); err != nil {
+			return "", err
+		}
+		ch := strings.TrimSpace(a.Channel)
+		cid := strings.TrimSpace(a.ChatID)
+		if ch == "" || cid == "" || a.FilePath == "" {
+			return "", errors.New("send_file requires channel, chat_id, and file_path")
+		}
+		// For send_file, we allow sending to current session since files have different semantics than text messages
+		return r.sendFile(ctx, a.FilePath, a.FileName, ch, cid, a.Caption)
 	case "spawn":
 		var a struct {
 			Task  string `json:"task"`

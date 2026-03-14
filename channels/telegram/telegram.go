@@ -1,11 +1,13 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,7 +112,8 @@ func (c *Channel) Stop() error {
 
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	text := strings.TrimSpace(msg.Content)
-	if text == "" {
+	attachments := msg.Attachments
+	if text == "" && len(attachments) == 0 {
 		return nil
 	}
 
@@ -126,6 +129,8 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return fmt.Errorf("telegram not connected")
 	}
 
+	// Send text message if present
+	if text != "" {
 	params := &tgbot.SendMessageParams{
 		ChatID:    chatIDAny,
 		Text:      markdownToTelegramHTML(text),
@@ -138,14 +143,114 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		}
 	}
 	if err := c.sendMessageWithRetry(ctx, b, params); err == nil {
-		return nil
+			// Continue to send attachments
 	} else if !isTelegramParseError(err) {
 		return err
-	}
-
+		} else {
 	params.Text = text
 	params.ParseMode = ""
-	return c.sendMessageWithRetry(ctx, b, params)
+			if err := c.sendMessageWithRetry(ctx, b, params); err != nil {
+				return err
+}
+		}
+	}
+
+	// Send attachments
+	for _, att := range attachments {
+		if err := c.sendTelegramAttachment(ctx, b, chatIDAny, att, msg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *Channel) sendTelegramAttachment(ctx context.Context, b *tgbot.Bot, chatID any, att bus.Attachment, msg bus.OutboundMessage) error {
+	var inputFile models.InputFile
+
+	if att.Data != nil {
+		// Use in-memory data
+		inputFile = &models.InputFileUpload{
+			Filename: att.Name,
+			Data:     bytes.NewReader(att.Data),
+		}
+	} else if att.LocalPath != "" {
+		// Use local file path
+		file, err := os.Open(att.LocalPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		inputFile = &models.InputFileUpload{
+			Filename: att.Name,
+			Data:     file,
+		}
+	} else {
+		return fmt.Errorf("attachment has no data or local path")
+	}
+
+	replyTo := resolveTelegramReplyTarget(msg)
+
+	// Determine send method based on attachment kind or MIME type
+	switch strings.ToLower(att.Kind) {
+	case "image":
+		params := &tgbot.SendPhotoParams{
+			ChatID:  chatID,
+			Photo:   inputFile,
+			Caption: att.Name,
+		}
+		if replyTo > 0 {
+			params.ReplyParameters = &models.ReplyParameters{
+				MessageID:                int(replyTo),
+				AllowSendingWithoutReply: true,
+			}
+		}
+		_, err := b.SendPhoto(ctx, params)
+		return err
+	case "audio":
+		params := &tgbot.SendAudioParams{
+			ChatID:  chatID,
+			Audio:   inputFile,
+			Caption: att.Name,
+		}
+		if replyTo > 0 {
+			params.ReplyParameters = &models.ReplyParameters{
+				MessageID:                int(replyTo),
+				AllowSendingWithoutReply: true,
+			}
+		}
+		_, err := b.SendAudio(ctx, params)
+		return err
+	case "video":
+		params := &tgbot.SendVideoParams{
+			ChatID:  chatID,
+			Video:   inputFile,
+			Caption: att.Name,
+		}
+		if replyTo > 0 {
+			params.ReplyParameters = &models.ReplyParameters{
+				MessageID:                int(replyTo),
+				AllowSendingWithoutReply: true,
+			}
+		}
+		_, err := b.SendVideo(ctx, params)
+		return err
+	default:
+		// Send as document for all other types
+		params := &tgbot.SendDocumentParams{
+			ChatID:   chatID,
+			Document: inputFile,
+			Caption:  att.Name,
+		}
+		if replyTo > 0 {
+			params.ReplyParameters = &models.ReplyParameters{
+				MessageID:                int(replyTo),
+				AllowSendingWithoutReply: true,
+			}
+		}
+		_, err := b.SendDocument(ctx, params)
+		return err
+	}
 }
 
 func (c *Channel) onUpdate(ctx context.Context, b *tgbot.Bot, up *models.Update) {

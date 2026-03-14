@@ -6,11 +6,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mosaxiv/clawlet/bus"
 	"github.com/mosaxiv/clawlet/memory"
 )
 
 type stubMemoryManager struct{}
 type stubSkillRegistry struct{}
+type stubOutbound func(ctx context.Context, msg bus.OutboundMessage) error
+
+func stubOutboundFunc(ctx context.Context, msg bus.OutboundMessage) error {
+	return nil
+}
 
 func (stubMemoryManager) Search(ctx context.Context, query string, opts memory.SearchOptions) ([]memory.SearchResult, error) {
 	return []memory.SearchResult{}, nil
@@ -116,6 +122,25 @@ func TestRegistryDefinitions_IncludesSkillRegistryToolsWhenEnabled(t *testing.T)
 	for _, n := range []string{"find_skills", "install_skill"} {
 		if !has[n] {
 			t.Fatalf("expected skill registry tool definition: %s", n)
+		}
+	}
+}
+
+func TestRegistryDefinitions_IncludesMessageToolsWhenEnabled(t *testing.T) {
+	r := &Registry{
+		WorkspaceDir:        "/tmp",
+		RestrictToWorkspace: false,
+		ExecTimeout:         1 * time.Second,
+		Outbound:            stubOutboundFunc,
+	}
+	defs := r.Definitions()
+	has := map[string]bool{}
+	for _, d := range defs {
+		has[d.Function.Name] = true
+	}
+	for _, n := range []string{"message", "send_file"} {
+		if !has[n] {
+			t.Fatalf("expected message tool definition: %s", n)
 		}
 	}
 }

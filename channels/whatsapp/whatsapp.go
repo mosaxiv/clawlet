@@ -147,7 +147,8 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return err
 	}
 	text := strings.TrimSpace(msg.Content)
-	if text == "" {
+	attachments := msg.Attachments
+	if text == "" && len(attachments) == 0 {
 		return nil
 	}
 
@@ -158,11 +159,29 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return fmt.Errorf("whatsapp not connected")
 	}
 
-	payload := buildOutboundMessage(text, resolveWhatsAppReplyTarget(msg))
+	// Send text message if present
+	if text != "" {
+		if err := c.sendWhatsAppMessage(ctx, wa, to, text); err != nil {
+			return err
+		}
+	}
+
+	// Send attachments
+	for _, att := range attachments {
+		if err := c.sendWhatsAppAttachment(ctx, wa, to, att); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *Channel) sendWhatsAppMessage(ctx context.Context, wa *whatsmeow.Client, to types.JID, text string) error {
+	payload := buildOutboundMessage(text, "")
 
 	const maxAttempts = 3
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		_, err = wa.SendMessage(ctx, to, payload)
+		_, err := wa.SendMessage(ctx, to, payload)
 		if err == nil {
 			return nil
 		}
@@ -179,6 +198,78 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		}
 	}
 	return nil
+}
+
+func (c *Channel) sendWhatsAppAttachment(ctx context.Context, wa *whatsmeow.Client, to types.JID, att bus.Attachment) error {
+	var data []byte
+	var err error
+
+	if att.Data != nil {
+		data = att.Data
+	} else if att.LocalPath != "" {
+		data, err = os.ReadFile(att.LocalPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("attachment has no data or local path")
+	}
+
+	uploaded, err := wa.Upload(ctx, data, whatsmeow.MediaImage) // Default to image, will be overridden
+	if err != nil {
+		return err
+	}
+
+	msg := &waE2E.Message{}
+	fileLength := uint64(len(data))
+	switch strings.ToLower(att.Kind) {
+	case "image":
+		msg.ImageMessage = &waE2E.ImageMessage{
+			Mimetype:      &att.MIMEType,
+			Caption:       &att.Name,
+			URL:           &uploaded.URL,
+			DirectPath:    &uploaded.DirectPath,
+			MediaKey:      uploaded.MediaKey,
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    &fileLength,
+		}
+	case "audio":
+		msg.AudioMessage = &waE2E.AudioMessage{
+			Mimetype:      &att.MIMEType,
+			URL:           &uploaded.URL,
+			DirectPath:    &uploaded.DirectPath,
+			MediaKey:      uploaded.MediaKey,
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    &fileLength,
+		}
+	case "video":
+		msg.VideoMessage = &waE2E.VideoMessage{
+			Mimetype:      &att.MIMEType,
+			Caption:       &att.Name,
+			URL:           &uploaded.URL,
+			DirectPath:    &uploaded.DirectPath,
+			MediaKey:      uploaded.MediaKey,
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    &fileLength,
+		}
+	default:
+		msg.DocumentMessage = &waE2E.DocumentMessage{
+			Mimetype:      &att.MIMEType,
+			FileName:      &att.Name,
+			URL:           &uploaded.URL,
+			DirectPath:    &uploaded.DirectPath,
+			MediaKey:      uploaded.MediaKey,
+			FileEncSHA256: uploaded.FileEncSHA256,
+			FileSHA256:    uploaded.FileSHA256,
+			FileLength:    &fileLength,
+		}
+	}
+
+	_, err = wa.SendMessage(ctx, to, msg)
+	return err
 }
 
 func (c *Channel) handleEvent(raw any) {

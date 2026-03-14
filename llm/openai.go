@@ -51,6 +51,9 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, messages []Message, t
 		req.Header.Set(k, v)
 	}
 
+	// Debug log request
+	c.debugLog("LLM Request to %s: %s", endpoint, string(b))
+
 	hc := c.HTTP
 	if hc == nil {
 		hc = &http.Client{Timeout: 120 * time.Second}
@@ -61,6 +64,10 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, messages []Message, t
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+
+	// Debug log response
+	c.debugLog("LLM Response from %s (status %d): %s", endpoint, resp.StatusCode, string(body))
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("llm http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
@@ -104,6 +111,8 @@ func (c *Client) chatOpenAICompatible(ctx context.Context, messages []Message, t
 			Arguments: args,
 		})
 	}
+	// Record token usage if available.
+	RecordTokenUsageFromResponse(body)
 	return out, nil
 }
 

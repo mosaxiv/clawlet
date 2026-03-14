@@ -31,6 +31,7 @@ func cmdChannels() *cli.Command {
 					fmt.Printf("slack.enabled=%v\n", cfg.Channels.Slack.Enabled)
 					fmt.Printf("telegram.enabled=%v\n", cfg.Channels.Telegram.Enabled)
 					fmt.Printf("whatsapp.enabled=%v\n", cfg.Channels.WhatsApp.Enabled)
+					fmt.Printf("feishu.enabled=%v\n", cfg.Channels.Feishu.Enabled)
 					return nil
 				},
 			},

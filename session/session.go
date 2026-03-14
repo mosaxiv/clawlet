@@ -235,6 +235,12 @@ func Save(dir string, s *Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Ensure the session key is stored on disk so it can be recovered from the session file later.
+	if s.Metadata == nil {
+		s.Metadata = map[string]any{}
+	}
+	s.Metadata["session_key"] = s.Key
+
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
@@ -270,6 +276,59 @@ func Save(dir string, s *Session) error {
 		return err
 	}
 	return nil
+}
+
+// ListKeys returns the session keys for all sessions stored in the given directory.
+//
+// It reads the first JSON line of each session file and tries to extract the stored
+// "session_key" metadata value. If the metadata is missing, it falls back to the
+// filename (without the .jsonl extension).
+func ListKeys(dir string) ([]string, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var keys []string
+	for _, de := range files {
+		if de.IsDir() {
+			continue
+		}
+		name := de.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		sc := bufio.NewScanner(f)
+		var k string
+		for sc.Scan() {
+			line := strings.TrimSpace(sc.Text())
+			if line == "" {
+				continue
+			}
+			var ml metadataLine
+			if err := json.Unmarshal([]byte(line), &ml); err == nil {
+				if v, ok := ml.Metadata["session_key"]; ok {
+					if ks, ok := v.(string); ok && ks != "" {
+						k = ks
+					}
+				}
+			}
+			break
+		}
+		_ = f.Close()
+		if k == "" {
+			k = strings.TrimSuffix(name, ".jsonl")
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
 }
 
 func cloneMessages(in []Message) []Message {
