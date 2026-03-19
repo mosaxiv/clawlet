@@ -225,6 +225,31 @@ func TestApplyLLMRouting_LocalAlias(t *testing.T) {
 	}
 }
 
+func TestApplyLLMRouting_Novita(t *testing.T) {
+	cfg := Default()
+	cfg.Env["NOVITA_API_KEY"] = "sk-novita-123"
+	cfg.Agents.Defaults.Model = "novita/moonshotai/kimi-k2.5"
+	cfg.LLM.BaseURL = ""
+	cfg.LLM.APIKey = ""
+
+	provider, configured := cfg.ApplyLLMRouting()
+	if provider != "novita" {
+		t.Fatalf("provider=%q", provider)
+	}
+	if configured != "novita/moonshotai/kimi-k2.5" {
+		t.Fatalf("configured=%q", configured)
+	}
+	if cfg.LLM.BaseURL != DefaultNovitaBaseURL {
+		t.Fatalf("baseURL=%q", cfg.LLM.BaseURL)
+	}
+	if cfg.LLM.APIKey != "sk-novita-123" {
+		t.Fatalf("apiKey=%q", cfg.LLM.APIKey)
+	}
+	if cfg.LLM.Model != "moonshotai/kimi-k2.5" {
+		t.Fatalf("model=%q", cfg.LLM.Model)
+	}
+}
+
 func TestLoad_MediaDefaults(t *testing.T) {
 	cfg := Default()
 	cfg.Tools.Media = MediaToolsConfig{}
